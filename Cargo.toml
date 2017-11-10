@@ -4,11 +4,14 @@ version = "0.1.0"
 authors = ["Dirkjan Ochtman <dirkjan@ochtman.nl>"]
 description = "IMAP protocol parser and data structures"
 documentation = "https://docs.rs/imap-proto"
-keywords = ["imap"]
-categories = ["email"]
+keywords = ["imap", "email"]
+categories = ["email", "network-programming", "parser-implementations"]
 homepage = "https://github.com/djc/imap-proto"
 repository = "https://github.com/djc/imap-proto"
 license = "MIT/Apache-2.0"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 nom = "3.1"
