@@ -113,32 +113,24 @@ named!(number_64<u64>, map_res!(
     str::parse
 ));
 
-named!(text<&str>, map!(take_till_s!(crlf),
-    |s| str::from_utf8(s).unwrap()
-));
+named!(text<&[u8]>, take_till_s!(crlf));
 
-named!(atom<&str>, map!(take_while1_s!(atom_char),
-    |s| str::from_utf8(s).unwrap()
-));
+named!(atom<&[u8]>, take_while1_s!(atom_char));
 
 named!(astring<&[u8]>, alt!(
     take_while1_s!(astring_char) |
     string
 ));
 
-named!(mailbox<&str>, alt!(
-    map!(tag_s!("INBOX"), |s| "INBOX") |
-    map!(astring, |s| str::from_utf8(s).unwrap())
+named!(mailbox<&[u8]>, alt!(
+    map!(tag_s!("INBOX"), |s| "INBOX".as_bytes()) | astring
 ));
 
-named!(flag_extension<&str>, map_res!(
-    recognize!(pair!(tag!("\\"), take_while!(atom_char))),
-    str::from_utf8
-));
+named!(flag_extension<&[u8]>, recognize!(pair!(tag!("\\"), take_while!(atom_char))));
 
-named!(flag<&str>, alt!(flag_extension | atom));
+named!(flag<&[u8]>, alt!(flag_extension | atom));
 
-named!(flag_list<Vec<&str>>, do_parse!(
+named!(flag_list<Vec<&[u8]>>, do_parse!(
     tag_s!("(") >>
     elements: opt!(do_parse!(
         flag0: flag >>
@@ -161,9 +153,8 @@ named!(flag_list<Vec<&str>>, do_parse!(
     })
 ));
 
-named!(flag_perm<&str>, alt!(
-    map!(tag_s!("\\*"), |s| str::from_utf8(s).unwrap()) |
-    flag
+named!(flag_perm<&[u8]>, alt!(
+    tag_s!("\\*") | flag
 ));
 
 named!(section_part<Vec<u32>>, do_parse!(
@@ -213,7 +204,7 @@ named!(section<Option<SectionPath>>, do_parse!(
     (spec)
 ));
 
-named!(resp_text_code_permanent_flags<ResponseCode>, do_parse!(
+named!(resp_text_code_permanent_flags<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("PERMANENTFLAGS (") >>
     elements: opt!(do_parse!(
         flag0: flag_perm >>
@@ -236,46 +227,46 @@ named!(resp_text_code_permanent_flags<ResponseCode>, do_parse!(
     })
 ));
 
-named!(resp_text_code_highest_mod_seq<ResponseCode>, do_parse!(
+named!(resp_text_code_highest_mod_seq<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("HIGHESTMODSEQ ") >>
     num: number_64 >>
     (ResponseCode::HighestModSeq(num))
 ));
 
-named!(resp_text_code_read_only<ResponseCode>, do_parse!(
+named!(resp_text_code_read_only<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("READ-ONLY") >>
     (ResponseCode::ReadOnly)
 ));
 
-named!(resp_text_code_read_write<ResponseCode>, do_parse!(
+named!(resp_text_code_read_write<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("READ-WRITE") >>
     (ResponseCode::ReadWrite)
 ));
 
-named!(resp_text_code_try_create<ResponseCode>, do_parse!(
+named!(resp_text_code_try_create<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("TRYCREATE") >>
     (ResponseCode::TryCreate)
 ));
 
-named!(resp_text_code_uid_validity<ResponseCode>, do_parse!(
+named!(resp_text_code_uid_validity<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("UIDVALIDITY ") >>
     num: number >>
     (ResponseCode::UidValidity(num))
 ));
 
-named!(resp_text_code_uid_next<ResponseCode>, do_parse!(
+named!(resp_text_code_uid_next<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("UIDNEXT ") >>
     num: number >>
     (ResponseCode::UidNext(num))
 ));
 
-named!(resp_text_code_unseen<ResponseCode>, do_parse!(
+named!(resp_text_code_unseen<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("UNSEEN ") >>
     num: number >>
     (ResponseCode::Unseen(num))
 ));
 
-named!(resp_text_code<ResponseCode>, do_parse!(
+named!(resp_text_code<ResponseCode<&'a [u8]> >, do_parse!(
     tag_s!("[") >>
     coded: alt!(
         resp_text_code_permanent_flags |
@@ -293,31 +284,30 @@ named!(resp_text_code<ResponseCode>, do_parse!(
     (coded)
 ));
 
-named!(capability<&str>, do_parse!(
+named!(capability<&[u8]>, do_parse!(
     tag_s!(" ") >>
-    atom: take_till1_s!(atom_specials) >>
-    (str::from_utf8(atom).unwrap())
+    atom: take_till1_s!(atom_specials) >> (atom)
 ));
 
-named!(capability_data<Response>, do_parse!(
+named!(capability_data<Response<&'a [u8]> >, do_parse!(
     tag_s!("CAPABILITY") >>
     capabilities: many1!(capability) >>
     (Response::Capabilities(capabilities))
 ));
 
-named!(mailbox_data_flags<Response>, do_parse!(
+named!(mailbox_data_flags<Response<&'a [u8]> >, do_parse!(
     tag_s!("FLAGS ") >>
     flags: flag_list >>
     (Response::MailboxData(MailboxDatum::Flags(flags)))
 ));
 
-named!(mailbox_data_exists<Response>, do_parse!(
+named!(mailbox_data_exists<Response<&'a [u8]> >, do_parse!(
     num: number >>
     tag_s!(" EXISTS") >>
     (Response::MailboxData(MailboxDatum::Exists(num)))
 ));
 
-named!(mailbox_data_list<Response>, do_parse!(
+named!(mailbox_data_list<Response<&'a [u8]> >, do_parse!(
     tag_s!("LIST ") >>
     flags: flag_list >>
     tag_s!(" ") >>
@@ -326,12 +316,12 @@ named!(mailbox_data_list<Response>, do_parse!(
     name: mailbox >>
     (Response::MailboxData(MailboxDatum::List {
         flags,
-        delimiter: str::from_utf8(path).unwrap(),
+        delimiter: path,
         name
     }))
 ));
 
-named!(mailbox_data_lsub<Response>, do_parse!(
+named!(mailbox_data_lsub<Response<&'a [u8]> >, do_parse!(
     tag_s!("LSUB ") >>
     flags: flag_list >>
     tag_s!(" ") >>
@@ -340,18 +330,18 @@ named!(mailbox_data_lsub<Response>, do_parse!(
     name: mailbox >>
     (Response::MailboxData(MailboxDatum::SubList {
         flags,
-        delimiter: str::from_utf8(path).unwrap(),
+        delimiter: path,
         name
     }))
 ));
 
-named!(mailbox_data_recent<Response>, do_parse!(
+named!(mailbox_data_recent<Response<&'a [u8]> >, do_parse!(
     num: number >>
     tag_s!(" RECENT") >>
     (Response::MailboxData(MailboxDatum::Recent(num)))
 ));
 
-named!(mailbox_data<Response>, alt!(
+named!(mailbox_data<Response<&'a [u8]> >, alt!(
     mailbox_data_flags |
     mailbox_data_exists |
     mailbox_data_list |
@@ -364,7 +354,7 @@ named!(nstring<Option<&[u8]>>, map!(
     |s| if s == b"NIL" { None } else { Some(s) }
 ));
 
-named!(address<Address>, do_parse!(
+named!(address<Address<&'a [u8]> >, do_parse!(
     tag_s!("(") >>
     name: nstring >>
     tag_s!(" ") >>
@@ -375,14 +365,14 @@ named!(address<Address>, do_parse!(
     host: nstring >>
     tag_s!(")") >>
     (Address {
-        name: name.map(|s| str::from_utf8(s).unwrap()),
-        adl: adl.map(|s| str::from_utf8(s).unwrap()),
-        mailbox: mailbox.map(|s| str::from_utf8(s).unwrap()),
-        host: host.map(|s| str::from_utf8(s).unwrap()),
+        name: name,
+        adl: adl,
+        mailbox: mailbox,
+        host: host,
     })
 ));
 
-named!(opt_addresses<Option<Vec<Address>>>, alt!(
+named!(opt_addresses<Option<Vec<Address<&'a [u8]> >>>, alt!(
     map!(tag_s!("NIL"), |s| None) |
     do_parse!(
         tag_s!("(") >>
@@ -392,7 +382,7 @@ named!(opt_addresses<Option<Vec<Address>>>, alt!(
     )
 ));
 
-named!(msg_att_body_section<AttributeValue>, do_parse!(
+named!(msg_att_body_section<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("BODY") >>
     section: section >>
     index: opt!(do_parse!(
@@ -406,7 +396,7 @@ named!(msg_att_body_section<AttributeValue>, do_parse!(
     (AttributeValue::BodySection { section, index, data })
 ));
 
-named!(msg_att_envelope<AttributeValue>, do_parse!(
+named!(msg_att_envelope<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("ENVELOPE (") >>
     date: nstring >>
     tag_s!(" ") >>
@@ -429,58 +419,58 @@ named!(msg_att_envelope<AttributeValue>, do_parse!(
     message_id: nstring >>
     tag_s!(")") >> ({
         AttributeValue::Envelope(Envelope {
-            date: date.map(|s| str::from_utf8(s).unwrap()),
-            subject: subject.map(|s| str::from_utf8(s).unwrap()),
+            date: date,
+            subject: subject,
             from,
             sender,
             reply_to,
             to,
             cc,
             bcc,
-            in_reply_to: in_reply_to.map(|s| str::from_utf8(s).unwrap()),
-            message_id: message_id.map(|s| str::from_utf8(s).unwrap()),
+            in_reply_to: in_reply_to,
+            message_id: message_id,
         })
     })
 ));
 
-named!(msg_att_internal_date<AttributeValue>, do_parse!(
+named!(msg_att_internal_date<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("INTERNALDATE ") >>
     date: nstring >>
-    (AttributeValue::InternalDate(str::from_utf8(date.unwrap()).unwrap()))
+    (AttributeValue::InternalDate(date.unwrap()))
 ));
 
-named!(msg_att_flags<AttributeValue>, do_parse!(
+named!(msg_att_flags<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("FLAGS ") >>
     flags: flag_list >>
     (AttributeValue::Flags(flags))
 ));
 
-named!(msg_att_rfc822<AttributeValue>, do_parse!(
+named!(msg_att_rfc822<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("RFC822 ") >>
     raw: nstring >>
     (AttributeValue::Rfc822(raw))
 ));
 
-named!(msg_att_rfc822_size<AttributeValue>, do_parse!(
+named!(msg_att_rfc822_size<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("RFC822.SIZE ") >>
     num: number >>
     (AttributeValue::Rfc822Size(num))
 ));
 
-named!(msg_att_mod_seq<AttributeValue>, do_parse!(
+named!(msg_att_mod_seq<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("MODSEQ (") >>
     num: number_64 >>
     tag_s!(")") >>
     (AttributeValue::ModSeq(num))
 ));
 
-named!(msg_att_uid<AttributeValue>, do_parse!(
+named!(msg_att_uid<AttributeValue<&'a [u8]> >, do_parse!(
     tag_s!("UID ") >>
     num: number >>
     (AttributeValue::Uid(num))
 ));
 
-named!(msg_att<AttributeValue>, alt!(
+named!(msg_att<AttributeValue<&'a [u8]> >, alt!(
     msg_att_body_section |
     msg_att_envelope |
     msg_att_internal_date |
@@ -491,7 +481,7 @@ named!(msg_att<AttributeValue>, alt!(
     msg_att_uid
 ));
 
-named!(msg_att_list<Vec<AttributeValue>>, do_parse!(
+named!(msg_att_list<Vec<AttributeValue<&'a [u8]> >>, do_parse!(
     tag_s!("(") >>
     elements: do_parse!(
         attr0: msg_att >>
@@ -509,14 +499,14 @@ named!(msg_att_list<Vec<AttributeValue>>, do_parse!(
     (elements)
 ));
 
-named!(message_data_fetch<Response>, do_parse!(
+named!(message_data_fetch<Response<&'a [u8]> >, do_parse!(
     num: number >>
     tag_s!(" FETCH ") >>
     attrs: msg_att_list >>
     (Response::Fetch(num, attrs))
 ));
 
-named!(message_data_expunge<Response>, do_parse!(
+named!(message_data_expunge<Response<&'a [u8]> >, do_parse!(
     num: number >>
     tag_s!(" EXPUNGE") >>
     (Response::Expunge(num))
@@ -530,7 +520,7 @@ named!(tag<RequestId>, map!(take_while1_s!(tag_char),
 //     ["[" resp-text-code "]" SP] text
 // However, examples in RFC 4551 (Conditional STORE) counteract this by giving
 // examples of `resp-text` that do not include the trailing space and text.
-named!(resp_text<(Option<ResponseCode>, Option<&str>)>, do_parse!(
+named!(resp_text<(Option<ResponseCode<&'a [u8]> >, Option<&[u8]>)>, do_parse!(
     code: opt!(resp_text_code) >>
     text: text >>
     ({
@@ -545,7 +535,7 @@ named!(resp_text<(Option<ResponseCode>, Option<&str>)>, do_parse!(
     })
 ));
 
-named!(response_tagged<Response>, do_parse!(
+named!(response_tagged<Response<&'a [u8]> >, do_parse!(
     tag: tag >>
     tag_s!(" ") >>
     status: status >>
@@ -560,7 +550,7 @@ named!(response_tagged<Response>, do_parse!(
     })
 ));
 
-named!(resp_cond<Response>, do_parse!(
+named!(resp_cond<Response<&'a [u8]> >, do_parse!(
     status: status >>
     tag_s!(" ") >>
     text: resp_text >>
@@ -571,7 +561,7 @@ named!(resp_cond<Response>, do_parse!(
     })
 ));
 
-named!(response_data<Response>, do_parse!(
+named!(response_data<Response<&'a [u8]> >, do_parse!(
     tag_s!("* ") >>
     contents: alt!(
         resp_cond |
@@ -584,26 +574,33 @@ named!(response_data<Response>, do_parse!(
     (contents)
 ));
 
-named!(response<Response>, alt!(
+named!(response<Response<&'a [u8]> >, alt!(
     response_data |
     response_tagged
 ));
 
-pub type ParseResult<'a> = IResult<&'a [u8], Response<'a>>;
+pub type ParseResult<'a, T> = IResult<&'a [u8], Response<'a, T>>;
 
-pub fn parse_response(msg: &[u8]) -> ParseResult {
+use ::FromByteResponse;
+pub fn parse_response_raw(msg: &[u8]) -> ParseResult<&[u8]> {
     response(msg)
+}
+pub fn parse_response<'a, T: FromByteResponse<'a>>(msg: &'a [u8]) -> ParseResult<'a, T> {
+    parse_response_raw(msg).map(|r| r.map_bytes())
+}
+pub fn parse_response_str(msg: &[u8]) -> ParseResult<&str> {
+    parse_response(msg)
 }
 
 
 #[cfg(test)]
 mod tests {
     use types::*;
-    use super::{parse_response, IResult};
+    use super::{IResult, parse_response_raw, parse_response_str, parse_response};
 
     #[test]
     fn test_number_overflow() {
-        match parse_response(b"* 2222222222222222222222222222222222222222222C\r\n") {
+        match parse_response_raw(b"* 2222222222222222222222222222222222222222222C\r\n") {
             IResult::Error(_) => {},
             _ => panic!("error required for integer overflow"),
         }
@@ -611,7 +608,34 @@ mod tests {
 
     #[test]
     fn test_unseen() {
-        match parse_response(b"* OK [UNSEEN 3] Message 3 is first unseen\r\n").unwrap() {
+        match parse_response_raw(b"* OK [UNSEEN 3] Message 3 is first unseen\r\n").unwrap() {
+            (_, Response::Data {
+                status: Status::Ok,
+                code: Some(ResponseCode::Unseen(3)),
+                information: Some(b"Message 3 is first unseen"),
+            }) => {},
+            rsp @ _ => panic!("unexpected response {:?}", rsp),
+        }
+    }
+
+    #[test]
+    fn test_body_text() {
+        match parse_response_raw(b"* 2 FETCH (BODY[TEXT] {3}\r\nfoo)\r\n") {
+            IResult::Done(_, Response::Fetch(_, attrs)) => {
+                let body = &attrs[0];
+                assert_eq!(body, &AttributeValue::BodySection {
+                    section: Some(SectionPath::Full(MessageSection::Text)),
+                    index: None,
+                    data: Some(b"foo"),
+                }, "body = {:?}", body);
+            },
+            rsp @ _ => panic!("unexpected response {:?}", rsp),
+        }
+    }
+
+    #[test]
+    fn test_as_str() {
+        match parse_response_str(b"* OK [UNSEEN 3] Message 3 is first unseen\r\n").unwrap() {
             (_, Response::Data {
                 status: Status::Ok,
                 code: Some(ResponseCode::Unseen(3)),
@@ -622,16 +646,38 @@ mod tests {
     }
 
     #[test]
-    fn test_body_text() {
-        match parse_response(b"* 2 FETCH (BODY[TEXT] {3}\r\nfoo)\r\n") {
-            IResult::Done(_, Response::Fetch(_, attrs)) => {
-                let body = &attrs[0];
-                assert_eq!(body, &AttributeValue::BodySection {
-                    section: Some(SectionPath::Full(MessageSection::Text)),
-                    index: None,
-                    data: Some(b"foo"),
-                }, "body = {:?}", body);
-            },
+    fn test_no_panic_on_bad_utf8() {
+        // see https://stackoverflow.com/questions/1301402/example-invalid-utf8-string
+        match parse_response_raw(b"* OK [UNSEEN 3] \xc3\x28\r\n").unwrap() {
+            (_, Response::Data {
+                status: Status::Ok,
+                code: Some(ResponseCode::Unseen(3)),
+                information: Some(b"\xc3\x28"),
+            }) => {},
+            rsp @ _ => panic!("unexpected response {:?}", rsp),
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_str_panic_on_bad_utf8() {
+        parse_response_str(b"* OK [UNSEEN 3] \xc3\x28\r\n").unwrap_err();
+    }
+
+    #[test]
+    fn test_generic_parse() {
+        use ::FromByteResponse;
+        impl<'a> FromByteResponse<'a> for bool {
+            fn from_bytes(_: &'a [u8]) -> Self {
+                true
+            }
+        }
+        match parse_response(b"* OK [UNSEEN 3] foo\r\n").unwrap() {
+            (_, Response::Data {
+                status: Status::Ok,
+                code: Some(ResponseCode::Unseen(3)),
+                information: Some(true),
+            }) => {},
             rsp @ _ => panic!("unexpected response {:?}", rsp),
         }
     }
