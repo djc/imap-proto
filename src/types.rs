@@ -97,6 +97,9 @@ pub enum AttributeValue<'a> {
         index: Option<u32>,
         data: Option<&'a [u8]>,
     },
+    Bodystructure {
+        data: Option<&'a [u8]>,
+    },
     Envelope(Envelope<'a>),
     Flags(Vec<&'a str>),
     InternalDate(&'a str),

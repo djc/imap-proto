@@ -467,6 +467,13 @@ named!(msg_att_rfc822_size<AttributeValue>, do_parse!(
     (AttributeValue::Rfc822Size(num))
 ));
 
+named!(msg_att_bodystructure<AttributeValue>, do_parse!(
+    tag_s!("BODYSTRUCTURE") >>
+    tag_s!(" ") >>
+    data: nstring >>
+    (AttributeValue::Bodystructure { data })
+));
+
 named!(msg_att_mod_seq<AttributeValue>, do_parse!(
     tag_s!("MODSEQ (") >>
     num: number_64 >>
@@ -488,6 +495,7 @@ named!(msg_att<AttributeValue>, alt!(
     msg_att_mod_seq |
     msg_att_rfc822 |
     msg_att_rfc822_size |
+    msg_att_bodystructure |
     msg_att_uid
 ));
 
@@ -617,6 +625,18 @@ mod tests {
                 code: Some(ResponseCode::Unseen(3)),
                 information: Some("Message 3 is first unseen"),
             }) => {},
+            rsp @ _ => panic!("unexpected response {:?}", rsp),
+        }
+    }
+
+    #[test]
+    fn bodystructure() {
+        const RESPONSE: &[u8] = b"* 15 FETCH (BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" \"iso-8859-1\") NIL NIL \"QUOTED-PRINTABLE\" 1315 42 NIL NIL NIL NIL))\r\n";
+        match parse_response(RESPONSE) {
+            IResult::Done(_, Response::Fetch(_, attrs)) => {
+                let body = &attrs[0];
+                assert!(if let &AttributeValue::Bodystructure { .. } = body { true } else { false }, "body = {:?}", body);
+            }
             rsp @ _ => panic!("unexpected response {:?}", rsp),
         }
     }
