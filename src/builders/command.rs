@@ -5,61 +5,68 @@ pub struct CommandBuilder {}
 
 impl CommandBuilder {
     pub fn check() -> Command {
-        let mut args = vec![];
-        args.extend(b"CHECK");
-        Command { args, next_state: None }
+        let args = b"CHECK".to_vec();
+        Command {
+            args,
+            next_state: None,
+        }
     }
 
     pub fn close() -> Command {
         let args = b"CLOSE".to_vec();
-        Command { args, next_state: Some(State::Authenticated) }
+        Command {
+            args,
+            next_state: Some(State::Authenticated),
+        }
     }
 
     pub fn examine(mailbox: &str) -> Command {
-        let mut args = vec![];
-        args.extend(format!("EXAMINE \"{}\"", quoted_string(mailbox).unwrap()).as_bytes());
-        Command { args, next_state: Some(State::Selected) }
+        let args = format!("EXAMINE \"{}\"", quoted_string(mailbox).unwrap()).into_bytes();
+        Command {
+            args,
+            next_state: Some(State::Selected),
+        }
     }
 
     pub fn fetch() -> FetchCommandEmpty {
-        let mut args = vec![];
-        args.extend(b"FETCH ");
+        let args = b"FETCH ".to_vec();
         FetchCommandEmpty { args: args }
     }
 
     pub fn list(reference: &str, glob: &str) -> Command {
-        let mut args = vec![];
-        args.extend(
-            format!(
-                "LIST \"{}\" \"{}\"",
-                quoted_string(reference).unwrap(),
-                quoted_string(glob).unwrap()
-            ).as_bytes(),
-        );
-        Command { args, next_state: None }
+        let args = format!(
+            "LIST \"{}\" \"{}\"",
+            quoted_string(reference).unwrap(),
+            quoted_string(glob).unwrap()
+        ).into_bytes();
+        Command {
+            args,
+            next_state: None,
+        }
     }
 
     pub fn login(user_name: &str, password: &str) -> Command {
-        let mut args = vec![];
-        args.extend(
-            format!(
-                "LOGIN \"{}\" \"{}\"",
-                quoted_string(user_name).unwrap(),
-                quoted_string(password).unwrap()
-            ).as_bytes(),
-        );
-        Command { args, next_state: Some(State::Authenticated) }
+        let args = format!(
+            "LOGIN \"{}\" \"{}\"",
+            quoted_string(user_name).unwrap(),
+            quoted_string(password).unwrap()
+        ).into_bytes();
+        Command {
+            args,
+            next_state: Some(State::Authenticated),
+        }
     }
 
     pub fn select(mailbox: &str) -> Command {
-        let mut args = vec![];
-        args.extend(format!("SELECT \"{}\"", quoted_string(mailbox).unwrap()).as_bytes());
-        Command { args, next_state: Some(State::Selected) }
+        let args = format!("SELECT \"{}\"", quoted_string(mailbox).unwrap()).into_bytes();
+        Command {
+            args,
+            next_state: Some(State::Selected),
+        }
     }
 
     pub fn uid_fetch() -> FetchCommandEmpty {
-        let mut args = vec![];
-        args.extend(b"UID FETCH ");
+        let args = b"UID FETCH ".to_vec();
         FetchCommandEmpty { args }
     }
 }
@@ -82,8 +89,7 @@ pub struct FetchCommandEmpty {
 
 impl FetchBuilderMessages for FetchCommandEmpty {
     fn prepare(self) -> FetchCommandMessages {
-        let FetchCommandEmpty { args } = self;
-        FetchCommandMessages { args }
+        FetchCommandMessages { args: self.args }
     }
 }
 
