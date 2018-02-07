@@ -1,12 +1,14 @@
 #[derive(Debug, Eq, PartialEq)]
 pub struct Request(pub RequestId, pub Vec<u8>);
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttrMacro {
     All,
     Fast,
     Full,
 }
+
+impl Copy for AttrMacro {}
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Response<'a> {
