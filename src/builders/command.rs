@@ -77,7 +77,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn to_parts(self) -> (Vec<u8>, Option<State>) {
+    pub fn into_parts(self) -> (Vec<u8>, Option<State>) {
         let Command { args, next_state } = self;
         (args, next_state)
     }
@@ -233,12 +233,12 @@ mod tests {
     #[test]
     fn login() {
         assert_eq!(
-            CommandBuilder::login("djc", "s3cr3t").to_parts().0,
+            CommandBuilder::login("djc", "s3cr3t").into_parts().0,
             b"LOGIN \"djc\" \"s3cr3t\""
         );
         assert_eq!(
             CommandBuilder::login("djc", "domain\\password")
-                .to_parts()
+                .into_parts()
                 .0,
             b"LOGIN \"djc\" \"domain\\\\password\""
         );
