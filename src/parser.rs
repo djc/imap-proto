@@ -305,6 +305,15 @@ named!(capability_data<Response>, do_parse!(
     (Response::Capabilities(capabilities))
 ));
 
+named!(search_data<Response>, do_parse!(
+    tag_s!("SEARCH") >>
+    ids: many0!(do_parse!(
+            tag_s!(" ") >>
+            id: number >>
+            (id))) >>
+    (Response::IDs(ids))
+));
+
 named!(mailbox_data_flags<Response>, do_parse!(
     tag_s!("FLAGS ") >>
     flags: flag_list >>
@@ -628,7 +637,8 @@ named!(response_data<Response>, do_parse!(
         mailbox_data |
         message_data_expunge |
         message_data_fetch |
-        capability_data
+        capability_data |
+        search_data
     ) >>
     tag_s!("\r\n") >>
     (contents)

@@ -27,6 +27,7 @@ pub enum Response<'a> {
     Expunge(u32),
     Fetch(u32, Vec<AttributeValue<'a>>),
     MailboxData(MailboxDatum<'a>),
+    IDs(Vec<u32>),
 }
 
 #[derive(Debug, Eq, PartialEq)]
