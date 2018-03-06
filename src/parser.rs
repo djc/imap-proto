@@ -305,7 +305,7 @@ named!(capability_data<Response>, do_parse!(
     (Response::Capabilities(capabilities))
 ));
 
-named!(search_data<Response>, do_parse!(
+named!(mailbox_data_search<Response>, do_parse!(
     tag_s!("SEARCH") >>
     ids: many0!(do_parse!(
             tag_s!(" ") >>
@@ -414,7 +414,8 @@ named!(mailbox_data<Response>, alt!(
     mailbox_data_list |
     mailbox_data_lsub |
     mailbox_data_status |
-    mailbox_data_recent
+    mailbox_data_recent |
+    mailbox_data_search
 ));
 
 named!(nstring<Option<&[u8]>>, map!(
@@ -637,8 +638,7 @@ named!(response_data<Response>, do_parse!(
         mailbox_data |
         message_data_expunge |
         message_data_fetch |
-        capability_data |
-        search_data
+        capability_data
     ) >>
     tag_s!("\r\n") >>
     (contents)
@@ -705,6 +705,23 @@ mod tests {
                     StatusAttribute::Messages(231),
                     StatusAttribute::UidNext(44292),
                 ]);
+            },
+            rsp @ _ => panic!("unexpected response {:?}", rsp),
+        }
+    }
+
+    #[test]
+    fn test_search() {
+        match parse_response(b"* SEARCH\r\n") {
+            IResult::Done(_, Response::IDs(ids)) => {
+                assert!(ids.is_empty());
+            },
+            rsp @ _ => panic!("unexpected response {:?}", rsp),
+        }
+        match parse_response(b"* SEARCH 12345 67890\r\n") {
+            IResult::Done(_, Response::IDs(ids)) => {
+                assert_eq!(ids[0], 12345);
+                assert_eq!(ids[1], 67890);
             },
             rsp @ _ => panic!("unexpected response {:?}", rsp),
         }
