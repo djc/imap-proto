@@ -11,7 +11,7 @@ use nom::{
     branch::alt,
     bytes::streaming::{tag, tag_no_case, take_while, take_while1},
     character::streaming::char,
-    combinator::{map, map_res, opt, recognize, value},
+    combinator::{map, map_res, opt, recognize, value, verify},
     multi::{many0, many1},
     sequence::{delimited, pair, preceded, terminated},
     IResult, Parser,
@@ -61,6 +61,10 @@ impl Status {
     fn parse(i: &[u8]) -> IResult<&[u8], Self> {
         alt((status_ok, status_no, status_bad, status_preauth, status_bye)).parse(i)
     }
+}
+
+fn nz_number(i: &[u8]) -> IResult<&[u8], u32> {
+    verify(number, |value| *value != 0).parse(i)
 }
 
 pub(crate) fn mailbox(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
@@ -190,6 +194,22 @@ fn resp_text_code_unseen(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
     .parse(i)
 }
 
+fn resp_text_code_uid_required(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
+    map(tag_no_case("UIDREQUIRED"), |_| ResponseCode::UidRequired).parse(i)
+}
+
+fn resp_text_code_message_limit(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
+    map(
+        (
+            tag_no_case("MESSAGELIMIT "),
+            nz_number,
+            opt(preceded(tag(" "), nz_number)),
+        ),
+        |(_, limit, last_uid)| ResponseCode::MessageLimit { limit, last_uid },
+    )
+    .parse(i)
+}
+
 #[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ResponseCode<'a> {
@@ -208,6 +228,13 @@ pub enum ResponseCode<'a> {
     AppendUid(u32, Vec<UidSetMember>),
     CopyUid(u32, Vec<UidSetMember>, Vec<UidSetMember>),
     UidNotSticky,
+    /// RFC 9586: a sequence-number command was attempted in UIDONLY mode.
+    UidRequired,
+    /// RFC 9738: command processing stopped at the advertised message limit.
+    MessageLimit {
+        limit: u32,
+        last_uid: Option<u32>,
+    },
     MetadataLongEntries(u64), // RFC 5464, section 4.2.1
     MetadataMaxSize(u64),     // RFC 5464, section 4.3
     MetadataTooMany,          // RFC 5464, section 4.3
@@ -229,6 +256,8 @@ impl<'a> ResponseCode<'a> {
                 resp_text_code_uid_validity,
                 resp_text_code_uid_next,
                 resp_text_code_unseen,
+                resp_text_code_uid_required,
+                resp_text_code_message_limit,
                 resp_text_code_read_only,
                 resp_text_code_read_write,
                 resp_text_code_try_create,
@@ -269,6 +298,10 @@ impl<'a> ResponseCode<'a> {
             ResponseCode::AppendUid(a, b) => ResponseCode::AppendUid(a, b),
             ResponseCode::CopyUid(a, b, c) => ResponseCode::CopyUid(a, b, c),
             ResponseCode::UidNotSticky => ResponseCode::UidNotSticky,
+            ResponseCode::UidRequired => ResponseCode::UidRequired,
+            ResponseCode::MessageLimit { limit, last_uid } => {
+                ResponseCode::MessageLimit { limit, last_uid }
+            }
             ResponseCode::MetadataLongEntries(v) => ResponseCode::MetadataLongEntries(v),
             ResponseCode::MetadataMaxSize(v) => ResponseCode::MetadataMaxSize(v),
             ResponseCode::MetadataTooMany => ResponseCode::MetadataTooMany,
@@ -1140,6 +1173,18 @@ fn message_data_fetch(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     .parse(i)
 }
 
+// RFC 9586: uidfetch-resp = uniqueid SP "UIDFETCH" SP msg-att
+//
+// The leading number is intentionally represented by a distinct response
+// variant so callers cannot mistake it for a mutable message sequence number.
+fn message_data_uid_fetch(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    map(
+        (nz_number, tag_no_case(" UIDFETCH "), msg_att_list),
+        |(uid, _, attrs)| Response::UidFetch(uid, attrs),
+    )
+    .parse(i)
+}
+
 // message-data    = nz-number SP ("EXPUNGE" / ("FETCH" SP msg-att))
 fn message_data_expunge(i: &[u8]) -> IResult<&[u8], u32> {
     terminated(number, tag_no_case(" EXPUNGE")).parse(i)
@@ -1256,16 +1301,25 @@ fn resp_cond(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 
 // response-data   = "*" SP (resp-cond-state / resp-cond-bye /
 //                   mailbox-data / message-data / capability-data / quota) CRLF
-pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+fn response_data_inner(i: &[u8], distinguish_enabled: bool) -> IResult<&[u8], Response<'_>> {
+    let enabled = |i| {
+        if distinguish_enabled {
+            rfc5161::resp_enabled_distinct(i)
+        } else {
+            rfc5161::resp_enabled(i)
+        }
+    };
+
     delimited(
         tag("* "),
         alt((
             resp_cond,
             map(MailboxDatum::parse, Response::MailboxData),
             map(message_data_expunge, Response::Expunge),
+            message_data_uid_fetch,
             message_data_fetch,
             map(capability_data, Response::Capabilities),
-            rfc5161::resp_enabled,
+            enabled,
             rfc5464::metadata_solicited,
             rfc5464::metadata_unsolicited,
             rfc7162::resp_vanished,
@@ -1282,6 +1336,14 @@ pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
         ),
     )
     .parse(i)
+}
+
+pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    response_data_inner(i, false)
+}
+
+pub(crate) fn response_data_with_enabled(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    response_data_inner(i, true)
 }
 
 #[cfg(test)]
