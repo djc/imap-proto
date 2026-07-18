@@ -23,6 +23,8 @@ pub enum AttrMacro {
 #[non_exhaustive]
 pub enum Response<'a> {
     Capabilities(Vec<Capability<'a>>),
+    /// Capabilities successfully enabled by an RFC 5161 ENABLE command.
+    Enabled(Vec<Capability<'a>>),
     Continue {
         code: Option<ResponseCode<'a>>,
         information: Option<Cow<'a, str>>,
@@ -44,6 +46,9 @@ pub enum Response<'a> {
         uids: Vec<std::ops::RangeInclusive<u32>>,
     },
     Fetch(u32, Vec<AttributeValue<'a>>),
+    /// An RFC 9586 UIDFETCH response. The leading number is always a UID,
+    /// never a mutable message sequence number.
+    UidFetch(u32, Vec<AttributeValue<'a>>),
     MailboxData(MailboxDatum<'a>),
     Quota(Quota<'a>),
     QuotaRoot(QuotaRoot<'a>),
@@ -61,6 +66,12 @@ impl<'a> Response<'a> {
     pub fn into_owned(self) -> Response<'static> {
         match self {
             Response::Capabilities(capabilities) => Response::Capabilities(
+                capabilities
+                    .into_iter()
+                    .map(Capability::into_owned)
+                    .collect(),
+            ),
+            Response::Enabled(capabilities) => Response::Enabled(
                 capabilities
                     .into_iter()
                     .map(Capability::into_owned)
@@ -94,6 +105,10 @@ impl<'a> Response<'a> {
             Response::Vanished { earlier, uids } => Response::Vanished { earlier, uids },
             Response::Fetch(seq, attrs) => Response::Fetch(
                 seq,
+                attrs.into_iter().map(AttributeValue::into_owned).collect(),
+            ),
+            Response::UidFetch(uid, attrs) => Response::UidFetch(
+                uid,
                 attrs.into_iter().map(AttributeValue::into_owned).collect(),
             ),
             Response::MailboxData(datum) => Response::MailboxData(datum.into_owned()),
@@ -138,6 +153,13 @@ pub enum ResponseCode<'a> {
     AppendUid(u32, Vec<UidSetMember>),
     CopyUid(u32, Vec<UidSetMember>, Vec<UidSetMember>),
     UidNotSticky,
+    /// RFC 9586: a sequence-number command was attempted in UIDONLY mode.
+    UidRequired,
+    /// RFC 9738: command processing stopped at the advertised message limit.
+    MessageLimit {
+        limit: u32,
+        last_uid: Option<u32>,
+    },
     MetadataLongEntries(u64), // RFC 5464, section 4.2.1
     MetadataMaxSize(u64),     // RFC 5464, section 4.3
     MetadataTooMany,          // RFC 5464, section 4.3
@@ -186,6 +208,10 @@ impl<'a> ResponseCode<'a> {
             ResponseCode::AppendUid(a, b) => ResponseCode::AppendUid(a, b),
             ResponseCode::CopyUid(a, b, c) => ResponseCode::CopyUid(a, b, c),
             ResponseCode::UidNotSticky => ResponseCode::UidNotSticky,
+            ResponseCode::UidRequired => ResponseCode::UidRequired,
+            ResponseCode::MessageLimit { limit, last_uid } => {
+                ResponseCode::MessageLimit { limit, last_uid }
+            }
             ResponseCode::MetadataLongEntries(v) => ResponseCode::MetadataLongEntries(v),
             ResponseCode::MetadataMaxSize(v) => ResponseCode::MetadataMaxSize(v),
             ResponseCode::MetadataTooMany => ResponseCode::MetadataTooMany,
