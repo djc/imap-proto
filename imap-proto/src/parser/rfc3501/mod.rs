@@ -11,7 +11,7 @@ use nom::{
     branch::alt,
     bytes::streaming::{tag, tag_no_case, take_while, take_while1},
     character::streaming::char,
-    combinator::{map, map_res, opt, recognize, value},
+    combinator::{map, map_res, opt, recognize, value, verify},
     multi::{many0, many1},
     sequence::{delimited, pair, preceded, terminated, tuple},
     IResult,
@@ -52,6 +52,10 @@ fn status_bye(i: &[u8]) -> IResult<&[u8], Status> {
 
 fn status(i: &[u8]) -> IResult<&[u8], Status> {
     alt((status_ok, status_no, status_bad, status_preauth, status_bye))(i)
+}
+
+fn nz_number(i: &[u8]) -> IResult<&[u8], u32> {
+    verify(number, |value| *value != 0)(i)
 }
 
 pub(crate) fn mailbox(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
@@ -173,6 +177,21 @@ fn resp_text_code_unseen(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
     )(i)
 }
 
+fn resp_text_code_uid_required(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
+    map(tag_no_case(b"UIDREQUIRED"), |_| ResponseCode::UidRequired)(i)
+}
+
+fn resp_text_code_message_limit(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
+    map(
+        tuple((
+            tag_no_case(b"MESSAGELIMIT "),
+            nz_number,
+            opt(preceded(tag(b" "), nz_number)),
+        )),
+        |(_, limit, last_uid)| ResponseCode::MessageLimit { limit, last_uid },
+    )(i)
+}
+
 fn resp_text_code(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
     // Per the spec, the closing tag should be "] ".
     // See `resp_text` for more on why this is done differently.
@@ -187,6 +206,8 @@ fn resp_text_code(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
             resp_text_code_uid_validity,
             resp_text_code_uid_next,
             resp_text_code_unseen,
+            resp_text_code_uid_required,
+            resp_text_code_message_limit,
             resp_text_code_read_only,
             resp_text_code_read_write,
             resp_text_code_try_create,
@@ -670,6 +691,17 @@ fn message_data_fetch(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     )(i)
 }
 
+// RFC 9586: uidfetch-resp = uniqueid SP "UIDFETCH" SP msg-att
+//
+// The leading number is intentionally represented by a distinct response
+// variant so callers cannot mistake it for a mutable message sequence number.
+fn message_data_uid_fetch(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    map(
+        tuple((nz_number, tag_no_case(" UIDFETCH "), msg_att_list)),
+        |(uid, _, attrs)| Response::UidFetch(uid, attrs),
+    )(i)
+}
+
 // message-data    = nz-number SP ("EXPUNGE" / ("FETCH" SP msg-att))
 fn message_data_expunge(i: &[u8]) -> IResult<&[u8], u32> {
     terminated(number, tag_no_case(" EXPUNGE"))(i)
@@ -765,18 +797,25 @@ fn resp_cond(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     })(i)
 }
 
-// response-data   = "*" SP (resp-cond-state / resp-cond-bye /
-//                   mailbox-data / message-data / capability-data / quota) CRLF
-pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+fn response_data_inner(i: &[u8], distinguish_enabled: bool) -> IResult<&[u8], Response<'_>> {
+    let enabled = |i| {
+        if distinguish_enabled {
+            rfc5161::resp_enabled_distinct(i)
+        } else {
+            rfc5161::resp_enabled(i)
+        }
+    };
+
     delimited(
         tag(b"* "),
         alt((
             resp_cond,
             map(mailbox_data, Response::MailboxData),
             map(message_data_expunge, Response::Expunge),
+            message_data_uid_fetch,
             message_data_fetch,
             map(capability_data, Response::Capabilities),
-            rfc5161::resp_enabled,
+            enabled,
             rfc5464::metadata_solicited,
             rfc5464::metadata_unsolicited,
             rfc7162::resp_vanished,
@@ -792,6 +831,16 @@ pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
             tag(b"\r\n"),
         ),
     )(i)
+}
+
+// response-data   = "*" SP (resp-cond-state / resp-cond-bye /
+//                   mailbox-data / message-data / capability-data / quota) CRLF
+pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    response_data_inner(i, false)
+}
+
+pub(crate) fn response_data_with_enabled(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    response_data_inner(i, true)
 }
 
 #[cfg(test)]

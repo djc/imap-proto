@@ -24,6 +24,10 @@ pub(crate) fn resp_enabled(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     map(enabled_data, Response::Capabilities)(i)
 }
 
+pub(crate) fn resp_enabled_distinct(i: &[u8]) -> IResult<&[u8], Response<'_>> {
+    map(enabled_data, Response::Enabled)(i)
+}
+
 fn enabled_data(i: &[u8]) -> IResult<&[u8], Vec<Capability<'_>>> {
     let (i, (_, capabilities)) = tuple((
         tag_no_case("ENABLED"),

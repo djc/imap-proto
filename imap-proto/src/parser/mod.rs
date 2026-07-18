@@ -27,4 +27,17 @@ pub fn parse_response(msg: &[u8]) -> ParseResult<'_> {
     ))(msg)
 }
 
+/// Parse a response while preserving RFC 5161 `ENABLED` responses as a
+/// distinct [`Response::Enabled`] variant.
+///
+/// [`parse_response`] retains its historical behavior and represents both
+/// `CAPABILITY` and `ENABLED` response data as [`Response::Capabilities`].
+pub fn parse_response_with_enabled(msg: &[u8]) -> ParseResult<'_> {
+    alt((
+        rfc3501::continue_req,
+        rfc3501::response_data_with_enabled,
+        rfc3501::response_tagged,
+    ))(msg)
+}
+
 pub type ParseResult<'a> = IResult<&'a [u8], Response<'a>>;
