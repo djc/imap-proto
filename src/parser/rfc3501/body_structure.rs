@@ -95,8 +95,12 @@ fn body_ext_mpart(i: &[u8]) -> IResult<&[u8], BodyExtMPart<'_>> {
     ))
 }
 
+// RFC 3501 defines `body-fld-enc` as a string, never NIL, but some servers send
+// NIL for a part with no Content-Transfer-Encoding header (seen on Apple iCloud;
+// imap-codec records the same from maddy). RFC 2045 s6.1 defaults that to 7bit.
 fn body_encoding(i: &[u8]) -> IResult<&[u8], ContentEncoding<'_>> {
     alt((
+        map(nil, |_| ContentEncoding::SevenBit),
         delimited(
             char('"'),
             alt((
@@ -416,6 +420,34 @@ mod tests {
                         (Cow::Borrowed("FILENAME"), Cow::Borrowed("pages.pdf"))
                     ])
                 });
+            }
+        );
+    }
+
+    // Apple iCloud sends NIL here, which the grammar does not allow.
+    #[test]
+    fn test_body_encoding_nil_is_seven_bit() {
+        assert_matches!(
+            body_encoding(br"NIL"),
+            Ok((EMPTY, ContentEncoding::SevenBit))
+        );
+    }
+
+    // The whole response has to survive it, not just the field.
+    #[test]
+    fn test_body_structure_multipart_with_nil_encoding() {
+        const BODY: &[u8] = br#"(("text" "plain" ("CHARSET" "UTF-8") NIL NIL NIL 1694 51 NIL NIL NIL NIL)("text" "html" ("CHARSET" "UTF-8") NIL NIL "quoted-printable" 5750 77 NIL NIL NIL NIL) "alternative" ("BOUNDARY" "94eb2c1235681e93cc0568edba59") NIL NIL NIL)"#;
+
+        assert_matches!(
+            body(BODY),
+            Ok((EMPTY, BodyStructure::Multipart { bodies, .. })) => {
+                assert_eq!(bodies.len(), 2);
+                assert_matches!(
+                    &bodies[0],
+                    BodyStructure::Text { other, .. } => {
+                        assert_eq!(other.transfer_encoding, ContentEncoding::SevenBit);
+                    }
+                );
             }
         );
     }
