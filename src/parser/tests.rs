@@ -709,6 +709,26 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
+    // "Logged in" response with UTF-8-encoded en dash (U+2013 codepoint) in it.
+    // This was returned by mail.systemausfall.org on 2026-09-14.
+    match parse_response(b"* OK [CAPABILITY IMAP4rev1 LOGIN-REFERRALS ID ENABLE IDLE SASL-IR LITERAL+ AUTH=PLAIN AUTH=LOGIN AUTH=XOAUTH2] Logged in \xe2\x80\x93 go ahead!\r\n") {
+        Ok((
+            _,
+            Response::Data {
+                status: Status::Ok,
+                outcome:
+                    Outcome {
+                        code: Some(ResponseCode::Capabilities(_)),
+                        information:
+                            Some(Cow::Borrowed(
+                                "Logged in \u{2013} go ahead!",
+                            )),
+                    },
+            },
+        )) => {}
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+
     match parse_response(b"* NO [BADCHARSET] error\r\n") {
         Ok((
             _,
