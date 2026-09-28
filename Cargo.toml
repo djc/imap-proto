@@ -9,7 +9,6 @@ keywords = ["imap", "email"]
 categories = ["email", "network-programming", "parser-implementations"]
 repository = "https://github.com/djc/imap-proto"
 license = "MIT OR Apache-2.0"
-readme = "../README.md"
 
 [dependencies]
 nom = "8"
