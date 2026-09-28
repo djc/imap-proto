@@ -1,12 +1,10 @@
+//! The IMAP ACL Extension
 //!
 //! Current
 //! <https://tools.ietf.org/html/rfc4314>
 //!
 //! Original
 //! <https://tools.ietf.org/html/rfc2086>
-//!
-//! The IMAP ACL Extension
-//!
 
 use std::borrow::Cow;
 
