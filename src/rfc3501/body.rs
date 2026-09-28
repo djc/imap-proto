@@ -9,8 +9,8 @@ use nom::{
 };
 use std::borrow::Cow;
 
-use crate::parser::core::*;
-use crate::parser::rfc3501::AttributeValue;
+use crate::core::*;
+use crate::rfc3501::AttributeValue;
 
 pub fn section_part(i: &[u8]) -> IResult<&[u8], Vec<u32>> {
     let (i, (part, mut rest)) = (number, many0(preceded(char('.'), number))).parse(i)?;

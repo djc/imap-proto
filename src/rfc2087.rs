@@ -17,8 +17,8 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::parser::core::{astring_utf8, to_owned_cow};
-use crate::parser::Response;
+use crate::core::{astring_utf8, to_owned_cow};
+use crate::Response;
 
 use super::core::number_64;
 
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn test_quota_response_data() {
         assert_matches!(
-            crate::parser::rfc3501::response_data(b"* QUOTA \"\" (STORAGE 10 512)\r\n"),
+            crate::rfc3501::response_data(b"* QUOTA \"\" (STORAGE 10 512)\r\n"),
             Ok((_, r)) => {
                 assert_eq!(
                     r,
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_quota_root_response_data() {
         assert_matches!(
-            crate::parser::rfc3501::response_data("* QUOTAROOT INBOX \"\"\r\n".as_bytes()),
+            crate::rfc3501::response_data("* QUOTAROOT INBOX \"\"\r\n".as_bytes()),
             Ok((_, r)) => {
                 assert_eq!(
                     r,

@@ -9,8 +9,8 @@ use nom::{
     bytes::streaming::tag_no_case, character::streaming::space1, combinator::opt, IResult, Parser,
 };
 
-use crate::parser::core::sequence_set;
-use crate::parser::Response;
+use crate::core::sequence_set;
+use crate::Response;
 
 // The VANISHED response reports that the specified UIDs have been
 // permanently removed from the mailbox.  This response is similar to

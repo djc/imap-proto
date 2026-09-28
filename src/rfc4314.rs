@@ -19,9 +19,9 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::parser::core::{astring_utf8, to_owned_cow};
-use crate::parser::rfc3501::mailbox;
-use crate::parser::Response;
+use crate::core::{astring_utf8, to_owned_cow};
+use crate::rfc3501::mailbox;
+use crate::Response;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Acl<'a> {

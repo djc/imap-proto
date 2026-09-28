@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::parser::rfc3501::body_structure::BodyStructure;
+use crate::rfc3501::body_structure::BodyStructure;
+
 /// An utility parser helping to find the appropriate
 /// section part from a FETCH response.
 pub struct BodyStructParser<'a> {

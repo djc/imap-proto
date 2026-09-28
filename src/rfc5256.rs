@@ -12,7 +12,7 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::parser::{core::number, rfc3501::MailboxDatum};
+use crate::{core::number, rfc3501::MailboxDatum};
 
 /// BASE.7.2.SORT. SORT Response
 ///

@@ -17,7 +17,7 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::parser::{
+use crate::{
     core::*, rfc2087, rfc2971, rfc3501::body::*, rfc3501::body_structure::*, rfc4314, rfc4315,
     rfc4315::UidSetMember, rfc4551, rfc5161, rfc5256, rfc5464, rfc5464::Metadata, rfc7162,
     Response,

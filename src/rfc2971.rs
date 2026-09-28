@@ -18,8 +18,8 @@ use nom::{
 };
 
 use crate::{
-    parser::core::{nil, nstring_utf8, string_utf8},
-    parser::Response,
+    core::{nil, nstring_utf8, string_utf8},
+    Response,
 };
 
 // A single id parameter (field and value).
