@@ -11,7 +11,7 @@ use std::borrow::Cow;
 
 use crate::parser::{
     core::*,
-    rfc3501::{envelope, to_owned_cow, AttributeValue, Envelope},
+    rfc3501::{to_owned_cow, AttributeValue, Envelope},
 };
 
 pub struct BodyFields<'a> {
@@ -23,6 +23,37 @@ pub struct BodyFields<'a> {
 }
 
 impl<'a> BodyFields<'a> {
+    // body-fields     = body-fld-param SP body-fld-id SP body-fld-desc SP
+    //                   body-fld-enc SP body-fld-octets
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (i, (param, _, id, _, description, _, transfer_encoding, _, octets)) = (
+            body_param,
+            tag(" "),
+            // body id seems to refer to the Message-ID or possibly Content-ID header, which
+            // by the definition in RFC 2822 seems to resolve to all ASCII characters (through
+            // a large amount of indirection which I did not have the patience to fully explore)
+            nstring_utf8,
+            tag(" "),
+            // Per https://tools.ietf.org/html/rfc2045#section-8, description should be all ASCII
+            nstring_utf8,
+            tag(" "),
+            ContentEncoding::parse,
+            tag(" "),
+            number,
+        )
+            .parse(i)?;
+        Ok((
+            i,
+            BodyFields {
+                param,
+                id,
+                description,
+                transfer_encoding,
+                octets,
+            },
+        ))
+    }
+
     pub fn into_owned(self) -> BodyFields<'static> {
         BodyFields {
             param: body_param_owned(self.param),
@@ -34,37 +65,6 @@ impl<'a> BodyFields<'a> {
     }
 }
 
-// body-fields     = body-fld-param SP body-fld-id SP body-fld-desc SP
-//                   body-fld-enc SP body-fld-octets
-fn body_fields(i: &[u8]) -> IResult<&[u8], BodyFields<'_>> {
-    let (i, (param, _, id, _, description, _, transfer_encoding, _, octets)) = (
-        body_param,
-        tag(" "),
-        // body id seems to refer to the Message-ID or possibly Content-ID header, which
-        // by the definition in RFC 2822 seems to resolve to all ASCII characters (through
-        // a large amount of indirection which I did not have the patience to fully explore)
-        nstring_utf8,
-        tag(" "),
-        // Per https://tools.ietf.org/html/rfc2045#section-8, description should be all ASCII
-        nstring_utf8,
-        tag(" "),
-        body_encoding,
-        tag(" "),
-        number,
-    )
-        .parse(i)?;
-    Ok((
-        i,
-        BodyFields {
-            param,
-            id,
-            description,
-            transfer_encoding,
-            octets,
-        },
-    ))
-}
-
 pub struct BodyExt1Part<'a> {
     pub md5: Option<Cow<'a, str>>,
     pub disposition: Option<ContentDisposition<'a>>,
@@ -74,6 +74,33 @@ pub struct BodyExt1Part<'a> {
 }
 
 impl<'a> BodyExt1Part<'a> {
+    // body-ext-1part  = body-fld-md5 [SP body-fld-dsp [SP body-fld-lang
+    //                   [SP body-fld-loc *(SP body-extension)]]]
+    //                     ; MUST NOT be returned on non-extensible
+    //                     ; "BODY" fetch
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (i, (md5, disposition, language, location, extension)) = (
+            // Per RFC 1864, MD5 values are base64-encoded
+            opt_opt(preceded(tag(" "), nstring_utf8)),
+            opt_opt(preceded(tag(" "), body_disposition)),
+            opt_opt(preceded(tag(" "), body_lang)),
+            // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
+            opt_opt(preceded(tag(" "), nstring_utf8)),
+            opt(preceded(tag(" "), BodyExtension::parse)),
+        )
+            .parse(i)?;
+        Ok((
+            i,
+            BodyExt1Part {
+                md5,
+                disposition,
+                language,
+                location,
+                extension,
+            },
+        ))
+    }
+
     pub fn into_owned(self) -> BodyExt1Part<'static> {
         BodyExt1Part {
             md5: self.md5.map(to_owned_cow),
@@ -87,33 +114,6 @@ impl<'a> BodyExt1Part<'a> {
     }
 }
 
-// body-ext-1part  = body-fld-md5 [SP body-fld-dsp [SP body-fld-lang
-//                   [SP body-fld-loc *(SP body-extension)]]]
-//                     ; MUST NOT be returned on non-extensible
-//                     ; "BODY" fetch
-fn body_ext_1part(i: &[u8]) -> IResult<&[u8], BodyExt1Part<'_>> {
-    let (i, (md5, disposition, language, location, extension)) = (
-        // Per RFC 1864, MD5 values are base64-encoded
-        opt_opt(preceded(tag(" "), nstring_utf8)),
-        opt_opt(preceded(tag(" "), body_disposition)),
-        opt_opt(preceded(tag(" "), body_lang)),
-        // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
-        opt_opt(preceded(tag(" "), nstring_utf8)),
-        opt(preceded(tag(" "), body_extension)),
-    )
-        .parse(i)?;
-    Ok((
-        i,
-        BodyExt1Part {
-            md5,
-            disposition,
-            language,
-            location,
-            extension,
-        },
-    ))
-}
-
 pub struct BodyExtMPart<'a> {
     pub param: BodyParams<'a>,
     pub disposition: Option<ContentDisposition<'a>>,
@@ -123,6 +123,32 @@ pub struct BodyExtMPart<'a> {
 }
 
 impl<'a> BodyExtMPart<'a> {
+    // body-ext-mpart  = body-fld-param [SP body-fld-dsp [SP body-fld-lang
+    //                   [SP body-fld-loc *(SP body-extension)]]]
+    //                     ; MUST NOT be returned on non-extensible
+    //                     ; "BODY" fetch
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (i, (param, disposition, language, location, extension)) = (
+            opt_opt(preceded(tag(" "), body_param)),
+            opt_opt(preceded(tag(" "), body_disposition)),
+            opt_opt(preceded(tag(" "), body_lang)),
+            // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
+            opt_opt(preceded(tag(" "), nstring_utf8)),
+            opt(preceded(tag(" "), BodyExtension::parse)),
+        )
+            .parse(i)?;
+        Ok((
+            i,
+            BodyExtMPart {
+                param,
+                disposition,
+                language,
+                location,
+                extension,
+            },
+        ))
+    }
+
     pub fn into_owned(self) -> BodyExtMPart<'static> {
         BodyExtMPart {
             param: body_param_owned(self.param),
@@ -136,32 +162,6 @@ impl<'a> BodyExtMPart<'a> {
     }
 }
 
-// body-ext-mpart  = body-fld-param [SP body-fld-dsp [SP body-fld-lang
-//                   [SP body-fld-loc *(SP body-extension)]]]
-//                     ; MUST NOT be returned on non-extensible
-//                     ; "BODY" fetch
-fn body_ext_mpart(i: &[u8]) -> IResult<&[u8], BodyExtMPart<'_>> {
-    let (i, (param, disposition, language, location, extension)) = (
-        opt_opt(preceded(tag(" "), body_param)),
-        opt_opt(preceded(tag(" "), body_disposition)),
-        opt_opt(preceded(tag(" "), body_lang)),
-        // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
-        opt_opt(preceded(tag(" "), nstring_utf8)),
-        opt(preceded(tag(" "), body_extension)),
-    )
-        .parse(i)?;
-    Ok((
-        i,
-        BodyExtMPart {
-            param,
-            disposition,
-            language,
-            location,
-            extension,
-        },
-    ))
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub enum ContentEncoding<'a> {
     SevenBit,
@@ -173,6 +173,30 @@ pub enum ContentEncoding<'a> {
 }
 
 impl<'a> ContentEncoding<'a> {
+    // RFC 3501 defines `body-fld-enc` as a string, never NIL, but some servers send
+    // NIL for a part with no Content-Transfer-Encoding header (seen on Apple iCloud;
+    // imap-codec records the same from maddy). RFC 2045 s6.1 defaults that to 7bit.
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            map(nil, |_| ContentEncoding::SevenBit),
+            delimited(
+                char('"'),
+                alt((
+                    map(tag_no_case("7BIT"), |_| ContentEncoding::SevenBit),
+                    map(tag_no_case("8BIT"), |_| ContentEncoding::EightBit),
+                    map(tag_no_case("BINARY"), |_| ContentEncoding::Binary),
+                    map(tag_no_case("BASE64"), |_| ContentEncoding::Base64),
+                    map(tag_no_case("QUOTED-PRINTABLE"), |_| {
+                        ContentEncoding::QuotedPrintable
+                    }),
+                )),
+                char('"'),
+            ),
+            map(string_utf8, ContentEncoding::Other),
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> ContentEncoding<'static> {
         match self {
             ContentEncoding::SevenBit => ContentEncoding::SevenBit,
@@ -183,30 +207,6 @@ impl<'a> ContentEncoding<'a> {
             ContentEncoding::Other(v) => ContentEncoding::Other(to_owned_cow(v)),
         }
     }
-}
-
-// RFC 3501 defines `body-fld-enc` as a string, never NIL, but some servers send
-// NIL for a part with no Content-Transfer-Encoding header (seen on Apple iCloud;
-// imap-codec records the same from maddy). RFC 2045 s6.1 defaults that to 7bit.
-fn body_encoding(i: &[u8]) -> IResult<&[u8], ContentEncoding<'_>> {
-    alt((
-        map(nil, |_| ContentEncoding::SevenBit),
-        delimited(
-            char('"'),
-            alt((
-                map(tag_no_case("7BIT"), |_| ContentEncoding::SevenBit),
-                map(tag_no_case("8BIT"), |_| ContentEncoding::EightBit),
-                map(tag_no_case("BINARY"), |_| ContentEncoding::Binary),
-                map(tag_no_case("BASE64"), |_| ContentEncoding::Base64),
-                map(tag_no_case("QUOTED-PRINTABLE"), |_| {
-                    ContentEncoding::QuotedPrintable
-                }),
-            )),
-            char('"'),
-        ),
-        map(string_utf8, ContentEncoding::Other),
-    ))
-    .parse(i)
 }
 
 fn body_lang(i: &[u8]) -> IResult<&[u8], Option<Vec<Cow<'_, str>>>> {
@@ -240,6 +240,20 @@ pub enum BodyExtension<'a> {
 }
 
 impl<'a> BodyExtension<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            map(number, BodyExtension::Num),
+            // Cannot find documentation on character encoding for body extension values.
+            // So far, assuming UTF-8 seems fine, please report if you run into issues here.
+            map(nstring_utf8, BodyExtension::Str),
+            map(
+                parenthesized_nonempty_list(BodyExtension::parse),
+                BodyExtension::List,
+            ),
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> BodyExtension<'static> {
         match self {
             BodyExtension::Num(v) => BodyExtension::Num(v),
@@ -249,20 +263,6 @@ impl<'a> BodyExtension<'a> {
             }
         }
     }
-}
-
-fn body_extension(i: &[u8]) -> IResult<&[u8], BodyExtension<'_>> {
-    alt((
-        map(number, BodyExtension::Num),
-        // Cannot find documentation on character encoding for body extension values.
-        // So far, assuming UTF-8 seems fine, please report if you run into issues here.
-        map(nstring_utf8, BodyExtension::Str),
-        map(
-            parenthesized_nonempty_list(body_extension),
-            BodyExtension::List,
-        ),
-    ))
-    .parse(i)
 }
 
 fn body_disposition(i: &[u8]) -> IResult<&[u8], Option<ContentDisposition<'_>>> {
@@ -283,8 +283,8 @@ fn body_type_basic(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             tag(" "),
             string_utf8,
             tag(" "),
-            body_fields,
-            body_ext_1part,
+            BodyFields::parse,
+            BodyExt1Part::parse,
         ),
         |(ty, _, subtype, _, fields, ext)| BodyStructure::Basic {
             common: BodyContentCommon {
@@ -317,10 +317,10 @@ fn body_type_text(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             tag(" "),
             string_utf8,
             tag(" "),
-            body_fields,
+            BodyFields::parse,
             tag(" "),
             number,
-            body_ext_1part,
+            BodyExt1Part::parse,
         ),
         |(_, _, subtype, _, fields, _, lines, ext)| BodyStructure::Text {
             common: BodyContentCommon {
@@ -352,14 +352,14 @@ fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
         (
             tag_no_case("\"MESSAGE\" \"RFC822\""),
             tag(" "),
-            body_fields,
+            BodyFields::parse,
             tag(" "),
-            envelope,
+            Envelope::parse,
             tag(" "),
-            body,
+            BodyStructure::parse,
             tag(" "),
             number,
-            body_ext_1part,
+            BodyExt1Part::parse,
         ),
         |(_, _, fields, _, envelope, _, body, _, lines, ext)| BodyStructure::Message {
             common: BodyContentCommon {
@@ -390,7 +390,12 @@ fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
 
 fn body_type_multipart(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     map(
-        (many1(body), tag(" "), string_utf8, body_ext_mpart),
+        (
+            many1(BodyStructure::parse),
+            tag(" "),
+            string_utf8,
+            BodyExtMPart::parse,
+        ),
         |(bodies, _, subtype, ext)| BodyStructure::Multipart {
             common: BodyContentCommon {
                 ty: ContentType {
@@ -439,6 +444,16 @@ pub enum BodyStructure<'a> {
 }
 
 impl<'a> BodyStructure<'a> {
+    pub(crate) fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        paren_delimited(alt((
+            body_type_text,
+            body_type_message,
+            body_type_basic,
+            body_type_multipart,
+        )))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> BodyStructure<'static> {
         match self {
             BodyStructure::Basic {
@@ -487,16 +502,6 @@ impl<'a> BodyStructure<'a> {
             },
         }
     }
-}
-
-pub(crate) fn body(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
-    paren_delimited(alt((
-        body_type_text,
-        body_type_message,
-        body_type_basic,
-        body_type_multipart,
-    )))
-    .parse(i)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -584,9 +589,10 @@ pub(crate) fn body_param_owned(v: BodyParams<'_>) -> BodyParams<'static> {
 }
 
 pub(crate) fn msg_att_body_structure(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
-    map((tag_no_case("BODYSTRUCTURE "), body), |(_, body)| {
-        AttributeValue::BodyStructure(body)
-    })
+    map(
+        (tag_no_case("BODYSTRUCTURE "), BodyStructure::parse),
+        |(_, body)| AttributeValue::BodyStructure(body),
+    )
     .parse(i)
 }
 
@@ -667,24 +673,24 @@ mod tests {
     #[test]
     fn test_body_extension_data() {
         assert_matches!(
-            body_extension(br#""blah""#),
+            BodyExtension::parse(br#""blah""#),
             Ok((EMPTY, BodyExtension::Str(Some(Cow::Borrowed("blah")))))
         );
 
         assert_matches!(
-            body_extension(br#"NIL"#),
+            BodyExtension::parse(br#"NIL"#),
             Ok((EMPTY, BodyExtension::Str(None)))
         );
 
         assert_matches!(
-            body_extension(br#"("hello")"#),
+            BodyExtension::parse(br#"("hello")"#),
             Ok((EMPTY, BodyExtension::List(list))) => {
                 assert_eq!(list, vec![BodyExtension::Str(Some(Cow::Borrowed("hello")))]);
             }
         );
 
         assert_matches!(
-            body_extension(br#"(1337)"#),
+            BodyExtension::parse(br#"(1337)"#),
             Ok((EMPTY, BodyExtension::List(list))) => {
                 assert_eq!(list, vec![BodyExtension::Num(1337)]);
             }
@@ -712,7 +718,7 @@ mod tests {
     #[test]
     fn test_body_encoding_nil_is_seven_bit() {
         assert_matches!(
-            body_encoding(br"NIL"),
+            ContentEncoding::parse(br"NIL"),
             Ok((EMPTY, ContentEncoding::SevenBit))
         );
     }
@@ -723,7 +729,7 @@ mod tests {
         const BODY: &[u8] = br#"(("text" "plain" ("CHARSET" "UTF-8") NIL NIL NIL 1694 51 NIL NIL NIL NIL)("text" "html" ("CHARSET" "UTF-8") NIL NIL "quoted-printable" 5750 77 NIL NIL NIL NIL) "alternative" ("BOUNDARY" "94eb2c1235681e93cc0568edba59") NIL NIL NIL)"#;
 
         assert_matches!(
-            body(BODY),
+            BodyStructure::parse(BODY),
             Ok((EMPTY, BodyStructure::Multipart { bodies, .. })) => {
                 assert_eq!(bodies.len(), 2);
                 assert_matches!(
@@ -741,7 +747,7 @@ mod tests {
         let (body_str, body_struct) = mock_body_text();
 
         assert_matches!(
-            body(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes()),
             Ok((_, text)) => {
                 assert_eq!(text, body_struct);
             }
@@ -754,7 +760,7 @@ mod tests {
         let (_, text_body_struct) = mock_body_text();
 
         assert_matches!(
-            body(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes()),
             Ok((_, text)) => {
                 assert_eq!(text, text_body_struct)
             }
@@ -766,7 +772,7 @@ mod tests {
         const BODY: &[u8] = br#"("APPLICATION" "PDF" ("NAME" "pages.pdf") NIL NIL "BASE64" 38838 NIL ("attachment" ("FILENAME" "pages.pdf")) NIL NIL)"#;
 
         assert_matches!(
-            body(BODY),
+            BodyStructure::parse(BODY),
             Ok((_, basic)) => {
                 assert_eq!(basic, BodyStructure::Basic {
                     common: BodyContentCommon {
@@ -803,7 +809,7 @@ mod tests {
             format!(r#"("MESSAGE" "RFC822" {BODY_FIELDS} {envelope_str} {text_body_str} 42)"#);
 
         assert_matches!(
-            body(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes()),
             Ok((_, BodyStructure::Message { .. }))
         );
     }
@@ -816,7 +822,7 @@ mod tests {
             format!(r#"({text_body_str1}{text_body_str2} "ALTERNATIVE" NIL NIL NIL NIL)"#);
 
         assert_matches!(
-            body(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes()),
             Ok((_, multipart)) => {
                 assert_eq!(multipart, BodyStructure::Multipart {
                     common: BodyContentCommon {

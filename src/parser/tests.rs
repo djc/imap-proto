@@ -1,4 +1,4 @@
-use super::{bodystructure::BodyStructParser, parse_response};
+use super::bodystructure::BodyStructParser;
 use crate::parser::rfc3501::body::{MessageSection, SectionPath};
 use crate::parser::rfc3501::body_structure::BodyStructure;
 use crate::parser::rfc3501::{
@@ -12,7 +12,7 @@ use std::num::NonZeroUsize;
 
 #[test]
 fn test_mailbox_data_response() {
-    match parse_response(b"* LIST (\\HasNoChildren) \".\" INBOX.Tests\r\n") {
+    match Response::parse(b"* LIST (\\HasNoChildren) \".\" INBOX.Tests\r\n") {
         Ok((_, Response::MailboxData(_))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
@@ -22,7 +22,7 @@ fn test_mailbox_data_response() {
 /// and extensions can be parsed.
 #[test]
 fn test_name_attributes() {
-    match parse_response(
+    match Response::parse(
         b"* LIST (\\Noinferiors \\Noselect \\Marked \\Unmarked \\All \\Archive \\Drafts \\Flagged \\Junk \\Sent \\Trash \\Foobar) \".\" INBOX.Tests\r\n",
     ) {
         Ok((
@@ -59,7 +59,7 @@ fn test_name_attributes() {
 /// Test the ACL response from RFC 4314/2086
 #[test]
 fn test_acl_response() {
-    match parse_response(b"* ACL INBOX user lrswipkxtecdan\r\n") {
+    match Response::parse(b"* ACL INBOX user lrswipkxtecdan\r\n") {
         Ok((_, Response::Acl(_))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
@@ -68,7 +68,7 @@ fn test_acl_response() {
 #[test]
 fn test_acl_attributes() {
     // no rights
-    match parse_response(b"* ACL INBOX\r\n") {
+    match Response::parse(b"* ACL INBOX\r\n") {
         Ok((_, Response::Acl(acl))) => {
             assert_eq!(
                 acl,
@@ -82,7 +82,7 @@ fn test_acl_attributes() {
     }
 
     // one right pair
-    match parse_response(b"* ACL INBOX user lrswipkxtecdan\r\n") {
+    match Response::parse(b"* ACL INBOX user lrswipkxtecdan\r\n") {
         Ok((_, Response::Acl(acl))) => {
             assert_eq!(
                 acl,
@@ -114,7 +114,7 @@ fn test_acl_attributes() {
     }
 
     // with custom rights
-    match parse_response(b"* ACL INBOX user lr0123\r\n") {
+    match Response::parse(b"* ACL INBOX user lr0123\r\n") {
         Ok((_, Response::Acl(acl))) => {
             assert_eq!(
                 acl,
@@ -138,7 +138,7 @@ fn test_acl_attributes() {
     }
 
     // multiple right pairs
-    match parse_response(b"* ACL INBOX user lrswipkxtecdan user2 lr\r\n") {
+    match Response::parse(b"* ACL INBOX user lrswipkxtecdan user2 lr\r\n") {
         Ok((_, Response::Acl(acl))) => {
             assert_eq!(
                 acl,
@@ -176,7 +176,7 @@ fn test_acl_attributes() {
     }
 
     // quoted mailbox
-    match parse_response(b"* ACL \"My folder\" user lrswipkxtecdan\r\n") {
+    match Response::parse(b"* ACL \"My folder\" user lrswipkxtecdan\r\n") {
         Ok((_, Response::Acl(acl))) => {
             assert_eq!(
                 acl,
@@ -208,7 +208,7 @@ fn test_acl_attributes() {
     }
 
     // quoted identifier
-    match parse_response(b"* ACL Trash \"user name\" lrswipkxtecdan\r\n") {
+    match Response::parse(b"* ACL Trash \"user name\" lrswipkxtecdan\r\n") {
         Ok((_, Response::Acl(acl))) => {
             assert_eq!(
                 acl,
@@ -243,7 +243,7 @@ fn test_acl_attributes() {
 /// Test the LISTRIGHTS response from RFC 4314/2086
 #[test]
 fn test_list_rights_response() {
-    match parse_response(b"* LISTRIGHTS INBOX user lkxca r s w i p t e d n\r\n") {
+    match Response::parse(b"* LISTRIGHTS INBOX user lkxca r s w i p t e d n\r\n") {
         Ok((_, Response::ListRights(_))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
@@ -252,7 +252,7 @@ fn test_list_rights_response() {
 #[test]
 fn test_list_rights_attributes() {
     // no required/always rights, and no optional rights
-    match parse_response(b"* LISTRIGHTS INBOX user \"\"\r\n") {
+    match Response::parse(b"* LISTRIGHTS INBOX user \"\"\r\n") {
         Ok((_, Response::ListRights(rights))) => {
             assert_eq!(
                 rights,
@@ -268,7 +268,7 @@ fn test_list_rights_attributes() {
     }
 
     // no required/always rights, and with optional rights
-    match parse_response(b"* LISTRIGHTS INBOX user \"\" l k x c\r\n") {
+    match Response::parse(b"* LISTRIGHTS INBOX user \"\" l k x c\r\n") {
         Ok((_, Response::ListRights(rights))) => {
             assert_eq!(
                 rights,
@@ -289,7 +289,7 @@ fn test_list_rights_attributes() {
     }
 
     // with required/always rights, and with optional rights
-    match parse_response(b"* LISTRIGHTS INBOX user lkr x c\r\n") {
+    match Response::parse(b"* LISTRIGHTS INBOX user lkr x c\r\n") {
         Ok((_, Response::ListRights(rights))) => {
             assert_eq!(
                 rights,
@@ -305,7 +305,7 @@ fn test_list_rights_attributes() {
     }
 
     // with required/always rights, and no optional rights
-    match parse_response(b"* LISTRIGHTS INBOX user lkr\r\n") {
+    match Response::parse(b"* LISTRIGHTS INBOX user lkr\r\n") {
         Ok((_, Response::ListRights(rights))) => {
             assert_eq!(
                 rights,
@@ -321,7 +321,7 @@ fn test_list_rights_attributes() {
     }
 
     // with mailbox with spaces
-    match parse_response(b"* LISTRIGHTS \"My Folder\" user lkr x c\r\n") {
+    match Response::parse(b"* LISTRIGHTS \"My Folder\" user lkr x c\r\n") {
         Ok((_, Response::ListRights(rights))) => {
             assert_eq!(
                 rights,
@@ -340,7 +340,7 @@ fn test_list_rights_attributes() {
 /// Test the MYRIGHTS response from RFC 4314/2086
 #[test]
 fn test_my_rights_response() {
-    match parse_response(b"* MYRIGHTS INBOX lkxca\r\n") {
+    match Response::parse(b"* MYRIGHTS INBOX lkxca\r\n") {
         Ok((_, Response::MyRights(_))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
@@ -349,7 +349,7 @@ fn test_my_rights_response() {
 #[test]
 fn test_my_rights_attributes() {
     // with rights
-    match parse_response(b"* MYRIGHTS INBOX lkr\r\n") {
+    match Response::parse(b"* MYRIGHTS INBOX lkr\r\n") {
         Ok((_, Response::MyRights(rights))) => {
             assert_eq!(
                 rights,
@@ -363,7 +363,7 @@ fn test_my_rights_attributes() {
     }
 
     // with space in mailbox
-    match parse_response(b"* MYRIGHTS \"My Folder\" lkr\r\n") {
+    match Response::parse(b"* MYRIGHTS \"My Folder\" lkr\r\n") {
         Ok((_, Response::MyRights(rights))) => {
             assert_eq!(
                 rights,
@@ -379,7 +379,7 @@ fn test_my_rights_attributes() {
 
 #[test]
 fn test_number_overflow() {
-    match parse_response(b"* 2222222222222222222222222222222222222222222C\r\n") {
+    match Response::parse(b"* 2222222222222222222222222222222222222222222C\r\n") {
         Err(_) => {}
         _ => panic!("error required for integer overflow"),
     }
@@ -387,7 +387,7 @@ fn test_number_overflow() {
 
 #[test]
 fn test_unseen() {
-    match parse_response(b"* OK [UNSEEN 3] Message 3 is first unseen\r\n").unwrap() {
+    match Response::parse(b"* OK [UNSEEN 3] Message 3 is first unseen\r\n").unwrap() {
         (
             _,
             Response::Data {
@@ -405,7 +405,7 @@ fn test_unseen() {
 
 #[test]
 fn test_body_text() {
-    match parse_response(b"* 2 FETCH (BODY[TEXT] {3}\r\nfoo)\r\n") {
+    match Response::parse(b"* 2 FETCH (BODY[TEXT] {3}\r\nfoo)\r\n") {
         Ok((_, Response::Fetch(_, attrs))) => {
             let body = &attrs[0];
             assert_eq!(
@@ -425,7 +425,7 @@ fn test_body_text() {
 #[test]
 fn test_body_structure() {
     const RESPONSE: &[u8] = b"* 15 FETCH (BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" \"iso-8859-1\") NIL NIL \"QUOTED-PRINTABLE\" 1315 42 NIL NIL NIL NIL))\r\n";
-    match parse_response(RESPONSE) {
+    match Response::parse(RESPONSE) {
         Ok((_, Response::Fetch(_, attrs))) => {
             let body = &attrs[0];
             assert!(
@@ -449,7 +449,7 @@ fn test_resp_text_lossy_decode_8bit() {
     response.push(0xFC); // Latin-1 'ü', not valid UTF-8
     response.extend_from_slice(b"ommen\r\n");
 
-    match parse_response(&response) {
+    match Response::parse(&response) {
         Ok((
             _,
             Response::Data {
@@ -485,7 +485,7 @@ fn test_body_structure_with_8bit_literal_filename() {
     response.extend_from_slice(&[0x47, 0xF6, 0x72, 0xFC, 0x6E, 0x74, 0xFC, 0x31]);
     response
         .extend_from_slice(b") \"<part1@example.com>\" NIL \"base64\" 15440 NIL NIL NIL NIL))\r\n");
-    match parse_response(&response) {
+    match Response::parse(&response) {
         Ok((_, Response::Fetch(_, attrs))) => {
             assert!(
                 matches!(attrs[0], AttributeValue::BodyStructure(_)),
@@ -499,7 +499,7 @@ fn test_body_structure_with_8bit_literal_filename() {
 
 #[test]
 fn test_status() {
-    match parse_response(b"* STATUS blurdybloop (MESSAGES 231 UIDNEXT 44292)\r\n") {
+    match Response::parse(b"* STATUS blurdybloop (MESSAGES 231 UIDNEXT 44292)\r\n") {
         Ok((_, Response::MailboxData(MailboxDatum::Status { mailbox, status }))) => {
             assert_eq!(mailbox, "blurdybloop");
             assert_eq!(
@@ -514,7 +514,7 @@ fn test_status() {
     }
 
     // Outlook server sends a STATUS response with a space in the end.
-    match parse_response(b"* STATUS Sent (UIDNEXT 107) \r\n") {
+    match Response::parse(b"* STATUS Sent (UIDNEXT 107) \r\n") {
         Ok((_, Response::MailboxData(MailboxDatum::Status { mailbox, status }))) => {
             assert_eq!(mailbox, "Sent");
             assert_eq!(status, [StatusAttribute::UidNext(107),]);
@@ -523,7 +523,7 @@ fn test_status() {
     }
 
     // mail.163.com sends a STATUS response with an empty list when asked for (UIDNEXT)
-    match parse_response(b"* STATUS \"INBOX\" ()\r\n") {
+    match Response::parse(b"* STATUS \"INBOX\" ()\r\n") {
         Ok((_, Response::MailboxData(MailboxDatum::Status { mailbox, status }))) => {
             assert_eq!(mailbox, "INBOX");
             assert_eq!(status, []);
@@ -534,15 +534,15 @@ fn test_status() {
 
 #[test]
 fn test_notify() {
-    match parse_response(b"* 3501 EXPUNGE\r\n") {
+    match Response::parse(b"* 3501 EXPUNGE\r\n") {
         Ok((_, Response::Expunge(3501))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
-    match parse_response(b"* 3501 EXISTS\r\n") {
+    match Response::parse(b"* 3501 EXISTS\r\n") {
         Ok((_, Response::MailboxData(MailboxDatum::Exists(3501)))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
-    match parse_response(b"+ idling\r\n") {
+    match Response::parse(b"+ idling\r\n") {
         Ok((
             _,
             Response::Continue(Outcome {
@@ -558,7 +558,7 @@ fn test_notify() {
 fn test_search() {
     // also allow trailing whitespace in SEARCH responses
     for empty_response in &["* SEARCH\r\n", "* SEARCH \r\n"] {
-        match parse_response(empty_response.as_bytes()) {
+        match Response::parse(empty_response.as_bytes()) {
             Ok((_, Response::MailboxData(MailboxDatum::Search(ids)))) => {
                 assert!(ids.is_empty());
             }
@@ -566,7 +566,7 @@ fn test_search() {
         }
     }
     for response in &["* SEARCH 12345 67890\r\n", "* SEARCH 12345 67890 \r\n"] {
-        match parse_response(response.as_bytes()) {
+        match Response::parse(response.as_bytes()) {
             Ok((_, Response::MailboxData(MailboxDatum::Search(ids)))) => {
                 assert_eq!(ids[0], 12345);
                 assert_eq!(ids[1], 67890);
@@ -580,7 +580,7 @@ fn test_search() {
 fn test_sort() {
     // also allow trailing whitespace in SEARCH responses
     for empty_response in &["* SORT\r\n", "* SORT \r\n"] {
-        match parse_response(empty_response.as_bytes()) {
+        match Response::parse(empty_response.as_bytes()) {
             Ok((_, Response::MailboxData(MailboxDatum::Sort(ids)))) => {
                 assert!(ids.is_empty());
             }
@@ -588,7 +588,7 @@ fn test_sort() {
         }
     }
     for response in &["* SORT 12345 67890\r\n", "* SORT 12345 67890 \r\n"] {
-        match parse_response(response.as_bytes()) {
+        match Response::parse(response.as_bytes()) {
             Ok((_, Response::MailboxData(MailboxDatum::Sort(ids)))) => {
                 assert_eq!(ids[0], 12345);
                 assert_eq!(ids[1], 67890);
@@ -600,7 +600,7 @@ fn test_sort() {
 
 #[test]
 fn test_uid_fetch() {
-    match parse_response(b"* 4 FETCH (UID 71372 RFC822.HEADER {10275}\r\n") {
+    match Response::parse(b"* 4 FETCH (UID 71372 RFC822.HEADER {10275}\r\n") {
         Err(nom::Err::Incomplete(nom::Needed::Size(size))) => {
             assert_eq!(size, NonZeroUsize::new(10275).unwrap());
         }
@@ -611,7 +611,7 @@ fn test_uid_fetch() {
 #[test]
 fn test_uid_fetch_extra_space() {
     // DavMail inserts an extra space after RFC822.HEADER
-    match parse_response(b"* 4 FETCH (UID 71372 RFC822.HEADER  {10275}\r\n") {
+    match Response::parse(b"* 4 FETCH (UID 71372 RFC822.HEADER  {10275}\r\n") {
         Err(nom::Err::Incomplete(nom::Needed::Size(size))) => {
             assert_eq!(size, NonZeroUsize::new(10275).unwrap());
         }
@@ -623,7 +623,7 @@ fn test_uid_fetch_extra_space() {
 fn test_header_fields() {
     const RESPONSE: &[u8] = b"* 1 FETCH (UID 1 BODY[HEADER.FIELDS (CHAT-VERSION)] {21}\r\nChat-Version: 1.0\r\n\r\n)\r\n";
 
-    match parse_response(RESPONSE) {
+    match Response::parse(RESPONSE) {
         Ok((_, Response::Fetch(_, _))) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
@@ -631,7 +631,7 @@ fn test_header_fields() {
 
 #[test]
 fn test_response_codes() {
-    match parse_response(b"* OK [ALERT] Alert!\r\n") {
+    match Response::parse(b"* OK [ALERT] Alert!\r\n") {
         Ok((
             _,
             Response::Data {
@@ -646,7 +646,7 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
-    match parse_response(b"* NO [PARSE] Something\r\n") {
+    match Response::parse(b"* NO [PARSE] Something\r\n") {
         Ok((
             _,
             Response::Data {
@@ -661,7 +661,7 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
-    match parse_response(b"* OK [CAPABILITY IMAP4rev1 IDLE] Logged in\r\n") {
+    match Response::parse(b"* OK [CAPABILITY IMAP4rev1 IDLE] Logged in\r\n") {
         Ok((
             _,
             Response::Data {
@@ -680,7 +680,7 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
-    match parse_response(b"* OK [CAPABILITY UIDPLUS IMAP4rev1 IDLE] Logged in\r\n") {
+    match Response::parse(b"* OK [CAPABILITY UIDPLUS IMAP4rev1 IDLE] Logged in\r\n") {
         Ok((
             _,
             Response::Data {
@@ -701,7 +701,7 @@ fn test_response_codes() {
     }
 
     // Missing IMAP4rev1
-    match parse_response(b"* OK [CAPABILITY UIDPLUS IDLE] Logged in\r\n") {
+    match Response::parse(b"* OK [CAPABILITY UIDPLUS IDLE] Logged in\r\n") {
         Ok((
             _,
             Response::Data {
@@ -718,7 +718,7 @@ fn test_response_codes() {
 
     // "Logged in" response with UTF-8-encoded en dash (U+2013 codepoint) in it.
     // This was returned by mail.systemausfall.org on 2026-09-14.
-    match parse_response(b"* OK [CAPABILITY IMAP4rev1 LOGIN-REFERRALS ID ENABLE IDLE SASL-IR LITERAL+ AUTH=PLAIN AUTH=LOGIN AUTH=XOAUTH2] Logged in \xe2\x80\x93 go ahead!\r\n") {
+    match Response::parse(b"* OK [CAPABILITY IMAP4rev1 LOGIN-REFERRALS ID ENABLE IDLE SASL-IR LITERAL+ AUTH=PLAIN AUTH=LOGIN AUTH=XOAUTH2] Logged in \xe2\x80\x93 go ahead!\r\n") {
         Ok((
             _,
             Response::Data {
@@ -736,7 +736,7 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
-    match parse_response(b"* NO [BADCHARSET] error\r\n") {
+    match Response::parse(b"* NO [BADCHARSET] error\r\n") {
         Ok((
             _,
             Response::Data {
@@ -751,7 +751,7 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
-    match parse_response(b"* NO [BADCHARSET (utf-8 latin1)] error\r\n") {
+    match Response::parse(b"* NO [BADCHARSET (utf-8 latin1)] error\r\n") {
         Ok((
             _,
             Response::Data {
@@ -770,7 +770,7 @@ fn test_response_codes() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 
-    match parse_response(b"* NO [BADCHARSET ()] error\r\n") {
+    match Response::parse(b"* NO [BADCHARSET ()] error\r\n") {
         Ok((
             _,
             Response::Data {
@@ -788,7 +788,7 @@ fn test_response_codes() {
 
 #[test]
 fn test_incomplete_fetch() {
-    match parse_response(b"* 4644 FETCH (UID ") {
+    match Response::parse(b"* 4644 FETCH (UID ") {
         Err(nom::Err::Incomplete(_)) => {}
         rsp => panic!("should be incomplete: {rsp:?}"),
     }
@@ -798,13 +798,13 @@ fn test_incomplete_fetch() {
 fn test_fetch_response_whitespace_tolerance() {
     // Allow extra whitespace before the closing parenthesis.
     let input = b"* 11784 FETCH (UID 87567 INTERNALDATE \"06-May-2023 18:48:30 +0200\" RFC822.SIZE 5799845 )\r\n";
-    assert!(parse_response(input).is_ok());
+    assert!(Response::parse(input).is_ok());
 }
 
 #[test]
 fn test_continuation() {
     // regular RFC compliant
-    match parse_response(b"+ \r\n") {
+    match Response::parse(b"+ \r\n") {
         Ok((
             _,
             Response::Continue(Outcome {
@@ -816,7 +816,7 @@ fn test_continuation() {
     }
 
     // short version, sent by yandex
-    match parse_response(b"+\r\n") {
+    match Response::parse(b"+\r\n") {
         Ok((
             _,
             Response::Continue(Outcome {
@@ -830,7 +830,7 @@ fn test_continuation() {
 
 #[test]
 fn test_enabled() {
-    match parse_response(b"* ENABLED QRESYNC X-GOOD-IDEA\r\n") {
+    match Response::parse(b"* ENABLED QRESYNC X-GOOD-IDEA\r\n") {
         Ok((_, capabilities)) => assert_eq!(
             capabilities,
             Response::Capabilities(vec![
@@ -847,7 +847,7 @@ fn test_flags() {
     // Invalid response (FLAGS can't include \*) from Zoho Mail server.
     //
     // As a workaround, such response is parsed without error.
-    match parse_response(b"* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)\r\n") {
+    match Response::parse(b"* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)\r\n") {
         Ok((_, capabilities)) => assert_eq!(
             capabilities,
             Response::MailboxData(MailboxDatum::Flags(vec![
@@ -865,7 +865,7 @@ fn test_flags() {
     // Invalid response (FLAGS can't include ']') from some unknown providers.
     //
     // As a workaround, such response is parsed without error.
-    match parse_response(b"* FLAGS (OIB-Seen-[Gmail]/All)\r\n") {
+    match Response::parse(b"* FLAGS (OIB-Seen-[Gmail]/All)\r\n") {
         Ok((_, capabilities)) => assert_eq!(
             capabilities,
             Response::MailboxData(MailboxDatum::Flags(vec![Cow::Borrowed(
@@ -878,7 +878,7 @@ fn test_flags() {
 
 #[test]
 fn test_vanished() {
-    match parse_response(b"* VANISHED (EARLIER) 1,2,3:8\r\n") {
+    match Response::parse(b"* VANISHED (EARLIER) 1,2,3:8\r\n") {
         Ok((_, Response::Vanished { earlier, uids })) => {
             assert!(earlier);
             assert_eq!(uids.len(), 3);
@@ -895,7 +895,7 @@ fn test_vanished() {
         rsp => panic!("Unexpected response: {rsp:?}"),
     }
 
-    match parse_response(b"* VANISHED 1,2,3:8,10\r\n") {
+    match Response::parse(b"* VANISHED 1,2,3:8,10\r\n") {
         Ok((_, Response::Vanished { earlier, uids })) => {
             assert!(!earlier);
             assert_eq!(uids.len(), 4);
@@ -903,7 +903,7 @@ fn test_vanished() {
         rsp => panic!("Unexpected response: {rsp:?}"),
     }
 
-    match parse_response(b"* VANISHED (EARLIER) 1\r\n") {
+    match Response::parse(b"* VANISHED (EARLIER) 1\r\n") {
         Ok((_, Response::Vanished { earlier, uids })) => {
             assert!(earlier);
             assert_eq!(uids.len(), 1);
@@ -912,7 +912,7 @@ fn test_vanished() {
         rsp => panic!("Unexpected response: {rsp:?}"),
     }
 
-    match parse_response(b"* VANISHED 1\r\n") {
+    match Response::parse(b"* VANISHED 1\r\n") {
         Ok((_, Response::Vanished { earlier, uids })) => {
             assert!(!earlier);
             assert_eq!(uids.len(), 1);
@@ -920,13 +920,13 @@ fn test_vanished() {
         rsp => panic!("Unexpected response: {rsp:?}"),
     }
 
-    assert!(parse_response(b"* VANISHED \r\n").is_err());
-    assert!(parse_response(b"* VANISHED (EARLIER) \r\n").is_err());
+    assert!(Response::parse(b"* VANISHED \r\n").is_err());
+    assert!(Response::parse(b"* VANISHED (EARLIER) \r\n").is_err());
 }
 
 #[test]
 fn test_uidplus() {
-    match dbg!(parse_response(
+    match dbg!(Response::parse(
         b"* OK [APPENDUID 38505 3955] APPEND completed\r\n"
     )) {
         Ok((
@@ -942,7 +942,7 @@ fn test_uidplus() {
         )) if uid_set == [3955.into()] => {}
         rsp => panic!("Unexpected response: {rsp:?}"),
     }
-    match dbg!(parse_response(
+    match dbg!(Response::parse(
         b"* OK [COPYUID 38505 304,319:320 3956:3958] Done\r\n"
     )) {
         Ok((
@@ -959,7 +959,7 @@ fn test_uidplus() {
             && uid_set_dst == [(3956..=3958).into()] => {}
         rsp => panic!("Unexpected response: {rsp:?}"),
     }
-    match dbg!(parse_response(
+    match dbg!(Response::parse(
         b"* NO [UIDNOTSTICKY] Non-persistent UIDs\r\n"
     )) {
         Ok((
@@ -1015,7 +1015,7 @@ fn test_imap_body_structure() {
         )\
     )\r\n";
 
-    let (_, resp) = parse_response(test).unwrap();
+    let (_, resp) = Response::parse(test).unwrap();
     match resp {
         Response::Fetch(_, f) => {
             let bodystructure = f
@@ -1041,7 +1041,7 @@ fn test_imap_body_structure() {
 
 #[test]
 fn test_parsing_of_quota_capability_in_login_response() {
-    match parse_response(b"* OK [CAPABILITY IMAP4rev1 IDLE QUOTA] Logged in\r\n") {
+    match Response::parse(b"* OK [CAPABILITY IMAP4rev1 IDLE QUOTA] Logged in\r\n") {
         Ok((
             _,
             Response::Data {
@@ -1064,7 +1064,7 @@ fn test_parsing_of_quota_capability_in_login_response() {
 
 #[test]
 fn test_parsing_of_bye_response() {
-    match parse_response(b"* BYE\r\n") {
+    match Response::parse(b"* BYE\r\n") {
         Ok((
             _,
             Response::Data {
@@ -1078,7 +1078,7 @@ fn test_parsing_of_bye_response() {
         )) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     };
-    match parse_response(b"* BYE Autologout; idle for too long\r\n") {
+    match Response::parse(b"* BYE Autologout; idle for too long\r\n") {
         Ok((
             _,
             Response::Data {
@@ -1099,7 +1099,7 @@ fn test_parsing_of_bye_response() {
 #[test]
 fn test_fetch_rfc8474_emailid() {
     // James sends EMAILID in FETCH responses when the client requests it.
-    match parse_response(
+    match Response::parse(
         b"* 1 FETCH (UID 123 EMAILID (M6d952b5c6f82bfd8) BODY[]<0> {5}\r\nhello)\r\n",
     ) {
         Ok((_, Response::Fetch(1, attrs))) => {
@@ -1120,7 +1120,7 @@ fn test_fetch_rfc8474_emailid() {
 
 #[test]
 fn test_fetch_rfc8474_threadid() {
-    match parse_response(
+    match Response::parse(
         b"* 1 FETCH (UID 123 THREADID (T64b4c7e452f961e2) BODY[]<0> {5}\r\nhello)\r\n",
     ) {
         Ok((_, Response::Fetch(1, attrs))) => {
@@ -1139,7 +1139,7 @@ fn test_fetch_rfc8474_threadid() {
 #[test]
 fn test_fetch_rfc8474_threadid_nil() {
     // RFC 8474 §5.2: THREADID can be NIL for messages with no thread association.
-    match parse_response(b"* 1 FETCH (UID 7 THREADID NIL BODY[]<0> {2}\r\nhi)\r\n") {
+    match Response::parse(b"* 1 FETCH (UID 7 THREADID NIL BODY[]<0> {2}\r\nhi)\r\n") {
         Ok((_, Response::Fetch(1, attrs))) => {
             assert_eq!(attrs.len(), 3);
             assert!(matches!(attrs[1], AttributeValue::ThreadId(None)));
@@ -1151,7 +1151,7 @@ fn test_fetch_rfc8474_threadid_nil() {
 #[test]
 fn test_fetch_rfc8474_emailid_and_threadid() {
     // Both attributes in the same FETCH response.
-    match parse_response(
+    match Response::parse(
         b"* 1 FETCH (UID 42 EMAILID (Mdeadbeef) THREADID (Tcafebabe) BODY[]<0> {3}\r\nhey)\r\n",
     ) {
         Ok((_, Response::Fetch(1, attrs))) => {
@@ -1175,7 +1175,7 @@ fn test_fetch_unknown_savedate_fallback() {
     // RFC 8514 §2: SAVEDATE is not yet typed first-class.  Confirm the
     // catch-all `msg_att_unknown` still absorbs unknown extension
     // attributes so that the rest of the FETCH list keeps parsing.
-    match parse_response(
+    match Response::parse(
         b"* 1 FETCH (UID 9 SAVEDATE \"01-Jan-2025 12:00:00 +0000\" BODY[]<0> {2}\r\nok)\r\n",
     ) {
         Ok((_, Response::Fetch(1, attrs))) => {

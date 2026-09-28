@@ -361,9 +361,7 @@ mod tests {
 
     #[test]
     fn test_response_codes() {
-        use crate::parser::parse_response;
-
-        match parse_response(b"* OK [METADATA LONGENTRIES 123] Some entries omitted.\r\n") {
+        match Response::parse(b"* OK [METADATA LONGENTRIES 123] Some entries omitted.\r\n") {
             Ok((
                 _,
                 Response::Data {
@@ -378,7 +376,7 @@ mod tests {
             rsp => panic!("unexpected response {rsp:?}"),
         }
 
-        match parse_response(b"* NO [METADATA MAXSIZE 123] Annotation too large.\r\n") {
+        match Response::parse(b"* NO [METADATA MAXSIZE 123] Annotation too large.\r\n") {
             Ok((
                 _,
                 Response::Data {
@@ -393,7 +391,7 @@ mod tests {
             rsp => panic!("unexpected response {rsp:?}"),
         }
 
-        match parse_response(b"* NO [METADATA TOOMANY] Too many annotations.\r\n") {
+        match Response::parse(b"* NO [METADATA TOOMANY] Too many annotations.\r\n") {
             Ok((
                 _,
                 Response::Data {
@@ -408,7 +406,7 @@ mod tests {
             rsp => panic!("unexpected response {rsp:?}"),
         }
 
-        match parse_response(b"* NO [METADATA NOPRIVATE] Private annotations not supported.\r\n") {
+        match Response::parse(b"* NO [METADATA NOPRIVATE] Private annotations not supported.\r\n") {
             Ok((
                 _,
                 Response::Data {

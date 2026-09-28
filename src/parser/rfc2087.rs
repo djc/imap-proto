@@ -66,7 +66,12 @@ pub(crate) fn quota(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 /// quota_list  ::= "(" #quota_resource ")"
 /// ```
 pub(crate) fn quota_list(i: &[u8]) -> IResult<&[u8], Vec<QuotaResource<'_>>> {
-    delimited(tag("("), separated_list0(space1, quota_resource), tag(")")).parse(i)
+    delimited(
+        tag("("),
+        separated_list0(space1, QuotaResource::parse),
+        tag(")"),
+    )
+    .parse(i)
 }
 
 /// 5.1. QUOTA Response (https://tools.ietf.org/html/rfc2087#section-5.1)
@@ -80,6 +85,22 @@ pub struct QuotaResource<'a> {
 }
 
 impl<'a> QuotaResource<'a> {
+    /// ```ignore
+    /// quota_resource  ::= atom SP number SP number
+    /// ```
+    pub(crate) fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (rest, (name, _, usage, _, limit)) = (
+            QuotaResourceName::parse,
+            space1,
+            number_64,
+            space1,
+            number_64,
+        )
+            .parse(i)?;
+
+        Ok((rest, QuotaResource { name, usage, limit }))
+    }
+
     pub fn into_owned(self) -> QuotaResource<'static> {
         QuotaResource {
             name: self.name.into_owned(),
@@ -87,16 +108,6 @@ impl<'a> QuotaResource<'a> {
             limit: self.limit,
         }
     }
-}
-
-/// ```ignore
-/// quota_resource  ::= atom SP number SP number
-/// ```
-pub(crate) fn quota_resource(i: &[u8]) -> IResult<&[u8], QuotaResource<'_>> {
-    let (rest, (name, _, usage, _, limit)) =
-        (quota_resource_name, space1, number_64, space1, number_64).parse(i)?;
-
-    Ok((rest, QuotaResource { name, usage, limit }))
 }
 
 /// https://tools.ietf.org/html/rfc2087#section-3
@@ -110,6 +121,15 @@ pub enum QuotaResourceName<'a> {
 }
 
 impl<'a> QuotaResourceName<'a> {
+    pub(crate) fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            map(tag_no_case("STORAGE"), |_| QuotaResourceName::Storage),
+            map(tag_no_case("MESSAGE"), |_| QuotaResourceName::Message),
+            map(astring_utf8, QuotaResourceName::Atom),
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> QuotaResourceName<'static> {
         match self {
             QuotaResourceName::Message => QuotaResourceName::Message,
@@ -117,15 +137,6 @@ impl<'a> QuotaResourceName<'a> {
             QuotaResourceName::Atom(v) => QuotaResourceName::Atom(to_owned_cow(v)),
         }
     }
-}
-
-pub(crate) fn quota_resource_name(i: &[u8]) -> IResult<&[u8], QuotaResourceName<'_>> {
-    alt((
-        map(tag_no_case("STORAGE"), |_| QuotaResourceName::Storage),
-        map(tag_no_case("MESSAGE"), |_| QuotaResourceName::Message),
-        map(astring_utf8, QuotaResourceName::Atom),
-    ))
-    .parse(i)
 }
 
 /// 5.2. QUOTAROOT Response (https://tools.ietf.org/html/rfc2087#section-5.2)

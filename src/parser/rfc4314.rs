@@ -52,7 +52,7 @@ pub(crate) fn acl(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 /// acl_list  ::= *(SP acl_entry)
 /// ```
 fn acl_list(i: &[u8]) -> IResult<&[u8], Vec<AclEntry<'_>>> {
-    preceded(space0, separated_list0(space1, acl_entry)).parse(i)
+    preceded(space0, separated_list0(space1, AclEntry::parse)).parse(i)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -62,26 +62,26 @@ pub struct AclEntry<'a> {
 }
 
 impl<'a> AclEntry<'a> {
+    /// ```ignore
+    /// acl_entry ::= SP identifier SP rights
+    /// ```
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (rest, (identifier, rights)) = separated_pair(
+            astring_utf8,
+            space1,
+            map(astring_utf8, |s| map_text_to_rights(&s)),
+        )
+        .parse(i)?;
+
+        Ok((rest, AclEntry { identifier, rights }))
+    }
+
     pub fn into_owned(self) -> AclEntry<'static> {
         AclEntry {
             identifier: to_owned_cow(self.identifier),
             rights: self.rights,
         }
     }
-}
-
-/// ```ignore
-/// acl_entry ::= SP identifier SP rights
-/// ```
-fn acl_entry(i: &[u8]) -> IResult<&[u8], AclEntry<'_>> {
-    let (rest, (identifier, rights)) = separated_pair(
-        astring_utf8,
-        space1,
-        map(astring_utf8, |s| map_text_to_rights(&s)),
-    )
-    .parse(i)?;
-
-    Ok((rest, AclEntry { identifier, rights }))
 }
 
 #[derive(Debug, Eq, PartialEq)]

@@ -12,7 +12,7 @@ fn main() -> std::io::Result<()> {
             line
         };
 
-        match Response::from_bytes(line.replace('\n', "\r\n").as_bytes()) {
+        match Response::parse(line.replace('\n', "\r\n").as_bytes()) {
             Ok((remaining, command)) => {
                 println!("{command:#?}");
 

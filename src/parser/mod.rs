@@ -57,8 +57,13 @@ pub enum Response<'a> {
 }
 
 impl<'a> Response<'a> {
-    pub fn from_bytes(buf: &'a [u8]) -> crate::ParseResult<'a> {
-        crate::parser::parse_response(buf)
+    pub fn parse(msg: &'a [u8]) -> ParseResult<'a> {
+        alt((
+            rfc3501::continue_req,
+            rfc3501::response_data,
+            rfc3501::response_tagged,
+        ))
+        .parse(msg)
     }
 
     pub fn into_owned(self) -> Response<'static> {
@@ -102,15 +107,6 @@ impl<'a> Response<'a> {
             Response::MyRights(rights) => Response::MyRights(rights.into_owned()),
         }
     }
-}
-
-pub fn parse_response(msg: &[u8]) -> ParseResult<'_> {
-    alt((
-        rfc3501::continue_req,
-        rfc3501::response_data,
-        rfc3501::response_tagged,
-    ))
-    .parse(msg)
 }
 
 pub type ParseResult<'a> = IResult<&'a [u8], Response<'a>>;

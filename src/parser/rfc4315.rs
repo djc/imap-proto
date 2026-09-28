@@ -75,13 +75,20 @@ pub(crate) fn resp_text_code_uid_not_sticky(i: &[u8]) -> IResult<&[u8], Response
 ///
 /// [RFC4315 - 4 Formal Syntax](https://tools.ietf.org/html/rfc4315#section-4)
 fn uid_set(i: &[u8]) -> IResult<&[u8], Vec<UidSetMember>> {
-    separated_list1(tag(","), alt((uid_range, map(number, From::from)))).parse(i)
+    separated_list1(tag(","), UidSetMember::parse).parse(i)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UidSetMember {
     UidRange(RangeInclusive<u32>),
     Uid(u32),
+}
+
+impl UidSetMember {
+    // uid-set member: uniqueid / uid-range
+    fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        alt((uid_range, map(number, From::from))).parse(i)
+    }
 }
 
 impl From<RangeInclusive<u32>> for UidSetMember {
