@@ -10,7 +10,7 @@ use nom::{
 };
 
 use crate::parser::core::sequence_set;
-use crate::types::*;
+use crate::parser::Response;
 
 // The VANISHED response reports that the specified UIDs have been
 // permanently removed from the mailbox.  This response is similar to

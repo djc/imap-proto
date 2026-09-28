@@ -11,6 +11,10 @@ use nom::{
 use std::borrow::Cow;
 use std::str::{from_utf8, FromStr};
 
+pub(crate) fn to_owned_cow<T: ?Sized + ToOwned>(c: Cow<'_, T>) -> Cow<'static, T> {
+    Cow::Owned(c.into_owned())
+}
+
 // ----- number -----
 
 // number          = 1*DIGIT

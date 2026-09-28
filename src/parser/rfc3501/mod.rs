@@ -17,12 +17,10 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::{
-    parser::{
-        core::*, rfc2087, rfc2971, rfc3501::body::*, rfc3501::body_structure::*, rfc4314, rfc4315,
-        rfc4551, rfc5161, rfc5256, rfc5464, rfc7162,
-    },
-    types::*,
+use crate::parser::{
+    core::*, rfc2087, rfc2971, rfc3501::body::*, rfc3501::body_structure::*, rfc4314, rfc4315,
+    rfc4315::UidSetMember, rfc4551, rfc5161, rfc5256, rfc5464, rfc5464::Metadata, rfc7162,
+    Response,
 };
 
 use super::gmail;
@@ -48,6 +46,15 @@ fn status_preauth(i: &[u8]) -> IResult<&[u8], Status> {
 }
 fn status_bye(i: &[u8]) -> IResult<&[u8], Status> {
     map(tag_no_case("BYE"), |_s| Status::Bye).parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Status {
+    Ok,
+    No,
+    Bad,
+    PreAuth,
+    Bye,
 }
 
 fn status(i: &[u8]) -> IResult<&[u8], Status> {
@@ -181,6 +188,62 @@ fn resp_text_code_unseen(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
     .parse(i)
 }
 
+#[derive(Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ResponseCode<'a> {
+    Alert,
+    BadCharset(Option<Vec<Cow<'a, str>>>),
+    Capabilities(Vec<Capability<'a>>),
+    HighestModSeq(u64), // RFC 4551, section 3.1.1
+    Parse,
+    PermanentFlags(Vec<Cow<'a, str>>),
+    ReadOnly,
+    ReadWrite,
+    TryCreate,
+    UidNext(u32),
+    UidValidity(u32),
+    Unseen(u32),
+    AppendUid(u32, Vec<UidSetMember>),
+    CopyUid(u32, Vec<UidSetMember>, Vec<UidSetMember>),
+    UidNotSticky,
+    MetadataLongEntries(u64), // RFC 5464, section 4.2.1
+    MetadataMaxSize(u64),     // RFC 5464, section 4.3
+    MetadataTooMany,          // RFC 5464, section 4.3
+    MetadataNoPrivate,        // RFC 5464, section 4.3
+}
+
+impl<'a> ResponseCode<'a> {
+    pub fn into_owned(self) -> ResponseCode<'static> {
+        match self {
+            ResponseCode::Alert => ResponseCode::Alert,
+            ResponseCode::BadCharset(v) => {
+                ResponseCode::BadCharset(v.map(|vs| vs.into_iter().map(to_owned_cow).collect()))
+            }
+            ResponseCode::Capabilities(v) => {
+                ResponseCode::Capabilities(v.into_iter().map(Capability::into_owned).collect())
+            }
+            ResponseCode::HighestModSeq(v) => ResponseCode::HighestModSeq(v),
+            ResponseCode::Parse => ResponseCode::Parse,
+            ResponseCode::PermanentFlags(v) => {
+                ResponseCode::PermanentFlags(v.into_iter().map(to_owned_cow).collect())
+            }
+            ResponseCode::ReadOnly => ResponseCode::ReadOnly,
+            ResponseCode::ReadWrite => ResponseCode::ReadWrite,
+            ResponseCode::TryCreate => ResponseCode::TryCreate,
+            ResponseCode::UidNext(v) => ResponseCode::UidNext(v),
+            ResponseCode::UidValidity(v) => ResponseCode::UidValidity(v),
+            ResponseCode::Unseen(v) => ResponseCode::Unseen(v),
+            ResponseCode::AppendUid(a, b) => ResponseCode::AppendUid(a, b),
+            ResponseCode::CopyUid(a, b, c) => ResponseCode::CopyUid(a, b, c),
+            ResponseCode::UidNotSticky => ResponseCode::UidNotSticky,
+            ResponseCode::MetadataLongEntries(v) => ResponseCode::MetadataLongEntries(v),
+            ResponseCode::MetadataMaxSize(v) => ResponseCode::MetadataMaxSize(v),
+            ResponseCode::MetadataTooMany => ResponseCode::MetadataTooMany,
+            ResponseCode::MetadataNoPrivate => ResponseCode::MetadataNoPrivate,
+        }
+    }
+}
+
 fn resp_text_code(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
     // Per the spec, the closing tag should be "] ".
     // See `resp_text` for more on why this is done differently.
@@ -210,6 +273,23 @@ fn resp_text_code(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
         tag("]"),
     )
     .parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub enum Capability<'a> {
+    Imap4rev1,
+    Auth(Cow<'a, str>),
+    Atom(Cow<'a, str>),
+}
+
+impl<'a> Capability<'a> {
+    pub fn into_owned(self) -> Capability<'static> {
+        match self {
+            Capability::Imap4rev1 => Capability::Imap4rev1,
+            Capability::Auth(v) => Capability::Auth(to_owned_cow(v)),
+            Capability::Atom(v) => Capability::Atom(to_owned_cow(v)),
+        }
+    }
 }
 
 fn capability(i: &[u8]) -> IResult<&[u8], Capability<'_>> {
@@ -274,6 +354,118 @@ fn mailbox_data_exists(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
     .parse(i)
 }
 
+/// The name attributes are returned as part of a LIST response described in
+/// [RFC 3501 section 7.2.2](https://tools.ietf.org/html/rfc3501#section-7.2.2).
+///
+/// This enumeration additional includes values from the extension Special-Use
+/// Mailboxes [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2).
+#[derive(Debug, Eq, PartialEq, Clone)]
+#[non_exhaustive]
+pub enum NameAttribute<'a> {
+    /// From [RFC 3501 section 7.2.2](https://tools.ietf.org/html/rfc3501#section-7.2.2):
+    ///
+    /// > It is not possible for any child levels of hierarchy to exist
+    /// > under this name; no child levels exist now and none can be
+    /// > created in the future.
+    NoInferiors,
+    /// From [RFC 3501 section 7.2.2](https://tools.ietf.org/html/rfc3501#section-7.2.2):
+    ///
+    /// > It is not possible to use this name as a selectable mailbox.
+    NoSelect,
+    /// From [RFC 3501 section 7.2.2](https://tools.ietf.org/html/rfc3501#section-7.2.2):
+    ///
+    /// > The mailbox has been marked "interesting" by the server; the
+    /// > mailbox probably contains messages that have been added since
+    /// > the last time the mailbox was selected.
+    Marked,
+    /// From [RFC 3501 section 7.2.2](https://tools.ietf.org/html/rfc3501#section-7.2.2):
+    ///
+    /// > The mailbox does not contain any additional messages since the
+    /// > last time the mailbox was selected.
+    Unmarked,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2):
+    ///
+    /// > This mailbox presents all messages in the user's message store.
+    /// > Implementations MAY omit some messages, such as, perhaps, those
+    /// > in \Trash and \Junk.  When this special use is supported, it is
+    /// > almost certain to represent a virtual mailbox.
+    All,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2):
+    ///
+    /// > This mailbox is used to archive messages.  The meaning of an
+    /// > "archival" mailbox is server-dependent; typically, it will be
+    /// > used to get messages out of the inbox, or otherwise keep them
+    /// > out of the user's way, while still making them accessible.
+    Archive,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2):
+    ///
+    /// > This mailbox is used to hold draft messages -- typically,
+    /// > messages that are being composed but have not yet been sent.  In
+    /// > some server implementations, this might be a virtual mailbox,
+    /// > containing messages from other mailboxes that are marked with
+    /// > the "\Draft" message flag.  Alternatively, this might just be
+    /// > advice that a client put drafts here.
+    Drafts,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2):
+    ///
+    /// > This mailbox presents all messages marked in some way as
+    /// > "important".  When this special use is supported, it is likely
+    /// > to represent a virtual mailbox collecting messages (from other
+    /// > mailboxes) that are marked with the "\Flagged" message flag.
+    Flagged,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2):
+    ///
+    /// > This mailbox is where messages deemed to be junk mail are held.
+    /// > Some server implementations might put messages here
+    /// > automatically.  Alternatively, this might just be advice to a
+    /// > client-side spam filter.
+    Junk,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2):
+    ///
+    /// > This mailbox is used to hold copies of messages that have been
+    /// > sent.  Some server implementations might put messages here
+    /// > automatically.  Alternatively, this might just be advice that a
+    /// > client save sent messages here.
+    Sent,
+    /// From [RFC 6154 section 2](https://tools.ietf.org/html/rfc6154#section-2)
+    ///
+    /// > This mailbox is used to hold messages that have been deleted or
+    /// > marked for deletion.  In some server implementations, this might
+    /// > be a virtual mailbox, containing messages from other mailboxes
+    /// > that are marked with the "\Deleted" message flag.
+    /// > Alternatively, this might just be advice that a client that
+    /// > chooses not to use the IMAP "\Deleted" model should use this as
+    /// > its trash location.  In server implementations that strictly
+    /// > expect the IMAP "\Deleted" model, this special use is likely not
+    /// > to be supported.
+    Trash,
+    /// A name attribute not defined in [RFC 3501 section 7.2.2](https://tools.ietf.org/html/rfc3501#section-7.2.2)
+    /// or any supported extension.
+    Extension(Cow<'a, str>),
+}
+
+impl<'a> NameAttribute<'a> {
+    pub fn into_owned(self) -> NameAttribute<'static> {
+        match self {
+            // RFC 3501
+            NameAttribute::NoInferiors => NameAttribute::NoInferiors,
+            NameAttribute::NoSelect => NameAttribute::NoSelect,
+            NameAttribute::Marked => NameAttribute::Marked,
+            NameAttribute::Unmarked => NameAttribute::Unmarked,
+            // RFC 6154
+            NameAttribute::All => NameAttribute::All,
+            NameAttribute::Archive => NameAttribute::Archive,
+            NameAttribute::Drafts => NameAttribute::Drafts,
+            NameAttribute::Flagged => NameAttribute::Flagged,
+            NameAttribute::Junk => NameAttribute::Junk,
+            NameAttribute::Sent => NameAttribute::Sent,
+            NameAttribute::Trash => NameAttribute::Trash,
+            // Extensions not supported by this crate
+            NameAttribute::Extension(s) => NameAttribute::Extension(to_owned_cow(s)),
+        }
+    }
+}
+
 fn name_attribute(i: &[u8]) -> IResult<&[u8], NameAttribute<'_>> {
     alt((
         // RFC 3501
@@ -299,6 +491,27 @@ fn name_attribute(i: &[u8]) -> IResult<&[u8], NameAttribute<'_>> {
         ),
     ))
     .parse(i)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MailboxListData<'a> {
+    pub name_attributes: Vec<NameAttribute<'a>>,
+    pub delimiter: Option<Cow<'a, str>>,
+    pub name: Cow<'a, str>,
+}
+
+impl MailboxListData<'_> {
+    pub fn into_owned(self) -> MailboxListData<'static> {
+        MailboxListData {
+            name_attributes: self
+                .name_attributes
+                .into_iter()
+                .map(|named_attribute| named_attribute.into_owned())
+                .collect(),
+            delimiter: self.delimiter.map(to_owned_cow),
+            name: to_owned_cow(self.name),
+        }
+    }
 }
 
 fn mailbox_list(i: &[u8]) -> IResult<&[u8], MailboxListData<'_>> {
@@ -331,6 +544,17 @@ fn mailbox_data_lsub(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
         MailboxDatum::List(data)
     })
     .parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+#[non_exhaustive]
+pub enum StatusAttribute {
+    HighestModSeq(u64), // RFC 4551
+    Messages(u32),
+    Recent(u32),
+    UidNext(u32),
+    UidValidity(u32),
+    Unseen(u32),
 }
 
 // Unlike `status_att` in the RFC syntax, this includes the value,
@@ -385,6 +609,68 @@ fn mailbox_data_recent(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
     .parse(i)
 }
 
+#[derive(Debug, Eq, PartialEq, Clone)]
+#[non_exhaustive]
+pub enum MailboxDatum<'a> {
+    Exists(u32),
+    Flags(Vec<Cow<'a, str>>),
+    List(MailboxListData<'a>),
+    Search(Vec<u32>),
+    Sort(Vec<u32>),
+    Status {
+        mailbox: Cow<'a, str>,
+        status: Vec<StatusAttribute>,
+    },
+    Recent(u32),
+    MetadataSolicited {
+        mailbox: Cow<'a, str>,
+        values: Vec<Metadata>,
+    },
+    MetadataUnsolicited {
+        mailbox: Cow<'a, str>,
+        values: Vec<Cow<'a, str>>,
+    },
+    GmailLabels(Vec<Cow<'a, str>>),
+    GmailMsgId(u64),
+    GmailThrId(u64),
+}
+
+impl<'a> MailboxDatum<'a> {
+    pub fn into_owned(self) -> MailboxDatum<'static> {
+        match self {
+            MailboxDatum::Exists(seq) => MailboxDatum::Exists(seq),
+            MailboxDatum::Flags(flags) => {
+                MailboxDatum::Flags(flags.into_iter().map(to_owned_cow).collect())
+            }
+            MailboxDatum::List(data) => MailboxDatum::List(data.into_owned()),
+            MailboxDatum::Search(seqs) => MailboxDatum::Search(seqs),
+            MailboxDatum::Sort(seqs) => MailboxDatum::Sort(seqs),
+            MailboxDatum::Status { mailbox, status } => MailboxDatum::Status {
+                mailbox: to_owned_cow(mailbox),
+                status,
+            },
+            MailboxDatum::Recent(seq) => MailboxDatum::Recent(seq),
+            MailboxDatum::MetadataSolicited { mailbox, values } => {
+                MailboxDatum::MetadataSolicited {
+                    mailbox: to_owned_cow(mailbox),
+                    values,
+                }
+            }
+            MailboxDatum::MetadataUnsolicited { mailbox, values } => {
+                MailboxDatum::MetadataUnsolicited {
+                    mailbox: to_owned_cow(mailbox),
+                    values: values.into_iter().map(to_owned_cow).collect(),
+                }
+            }
+            MailboxDatum::GmailLabels(labels) => {
+                MailboxDatum::GmailLabels(labels.into_iter().map(to_owned_cow).collect())
+            }
+            MailboxDatum::GmailMsgId(msgid) => MailboxDatum::GmailMsgId(msgid),
+            MailboxDatum::GmailThrId(thrid) => MailboxDatum::GmailThrId(thrid),
+        }
+    }
+}
+
 fn mailbox_data(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
     alt((
         mailbox_data_flags,
@@ -400,6 +686,25 @@ fn mailbox_data(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
         rfc5256::mailbox_data_sort,
     ))
     .parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Address<'a> {
+    pub name: Option<Cow<'a, [u8]>>,
+    pub adl: Option<Cow<'a, [u8]>>,
+    pub mailbox: Option<Cow<'a, [u8]>>,
+    pub host: Option<Cow<'a, [u8]>>,
+}
+
+impl<'a> Address<'a> {
+    pub fn into_owned(self) -> Address<'static> {
+        Address {
+            name: self.name.map(to_owned_cow),
+            adl: self.adl.map(to_owned_cow),
+            mailbox: self.mailbox.map(to_owned_cow),
+            host: self.host.map(to_owned_cow),
+        }
+    }
 }
 
 // An address structure is a parenthesized list that describes an
@@ -434,6 +739,55 @@ fn opt_addresses(i: &[u8]) -> IResult<&[u8], Option<Vec<Address<'_>>>> {
         ),
     ))
     .parse(i)
+}
+
+/// An RFC 2822 envelope
+///
+/// See https://datatracker.ietf.org/doc/html/rfc2822#section-3.6 for more details.
+#[derive(Debug, Eq, PartialEq)]
+pub struct Envelope<'a> {
+    pub date: Option<Cow<'a, [u8]>>,
+    pub subject: Option<Cow<'a, [u8]>>,
+    /// Author of the message; mailbox responsible for writing the message
+    pub from: Option<Vec<Address<'a>>>,
+    /// Mailbox of the agent responsible for the message's transmission
+    pub sender: Option<Vec<Address<'a>>>,
+    /// Mailbox that the author of the message suggests replies be sent to
+    pub reply_to: Option<Vec<Address<'a>>>,
+    pub to: Option<Vec<Address<'a>>>,
+    pub cc: Option<Vec<Address<'a>>>,
+    pub bcc: Option<Vec<Address<'a>>>,
+    pub in_reply_to: Option<Cow<'a, [u8]>>,
+    pub message_id: Option<Cow<'a, [u8]>>,
+}
+
+impl<'a> Envelope<'a> {
+    pub fn into_owned(self) -> Envelope<'static> {
+        Envelope {
+            date: self.date.map(to_owned_cow),
+            subject: self.subject.map(to_owned_cow),
+            from: self
+                .from
+                .map(|v| v.into_iter().map(|v| v.into_owned()).collect()),
+            sender: self
+                .sender
+                .map(|v| v.into_iter().map(|v| v.into_owned()).collect()),
+            reply_to: self
+                .reply_to
+                .map(|v| v.into_iter().map(|v| v.into_owned()).collect()),
+            to: self
+                .to
+                .map(|v| v.into_iter().map(|v| v.into_owned()).collect()),
+            cc: self
+                .cc
+                .map(|v| v.into_iter().map(|v| v.into_owned()).collect()),
+            bcc: self
+                .bcc
+                .map(|v| v.into_iter().map(|v| v.into_owned()).collect()),
+            in_reply_to: self.in_reply_to.map(to_owned_cow),
+            message_id: self.message_id.map(to_owned_cow),
+        }
+    }
 }
 
 // envelope        = "(" env-date SP env-subject SP env-from SP
@@ -664,6 +1018,85 @@ fn msg_att_unknown(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
     .parse(i)
 }
 
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum AttributeValue<'a> {
+    BodySection {
+        section: Option<SectionPath>,
+        index: Option<u32>,
+        data: Option<Cow<'a, [u8]>>,
+    },
+    BodyStructure(BodyStructure<'a>),
+    Envelope(Box<Envelope<'a>>),
+    Flags(Vec<Cow<'a, str>>),
+    InternalDate(Cow<'a, str>),
+    ModSeq(u64), // RFC 4551, section 3.3.2
+    Rfc822(Option<Cow<'a, [u8]>>),
+    Rfc822Header(Option<Cow<'a, [u8]>>),
+    Rfc822Size(u32),
+    Rfc822Text(Option<Cow<'a, [u8]>>),
+    Uid(u32),
+    /// https://developers.google.com/gmail/imap/imap-extensions#access_to_gmail_labels_x-gm-labels
+    GmailLabels(Vec<Cow<'a, str>>),
+    GmailMsgId(u64),
+    GmailThrId(u64),
+    /// RFC 8474 §5.1 — `EMAILID`: a server-assigned unique identifier for
+    /// a message. RFC 8474 mandates that the server can always provide an
+    /// EMAILID for any stored message, so this variant is non-optional.
+    EmailId(Cow<'a, str>),
+    /// RFC 8474 §5.2 — `THREADID`: a server-assigned identifier for the
+    /// thread a message belongs to.  `None` corresponds to the wire-form
+    /// `THREADID NIL`, which RFC 8474 §5.2 mandates for messages that do
+    /// not currently have a thread association.
+    ThreadId(Option<Cow<'a, str>>),
+    /// An unknown or not-yet-supported FETCH attribute.
+    ///
+    /// Returned for any `msg-att` token that the parser does not explicitly
+    /// recognise (e.g. `SAVEDATE` from RFC 8514, or any future extension).
+    /// The name and raw value are consumed and discarded so that the rest
+    /// of the `FETCH` attribute list can be parsed without error.  Callers
+    /// that need the raw value should match on the specific RFC extension
+    /// and open a tracking issue or PR.
+    Unknown,
+}
+
+impl<'a> AttributeValue<'a> {
+    pub fn into_owned(self) -> AttributeValue<'static> {
+        match self {
+            AttributeValue::BodySection {
+                section,
+                index,
+                data,
+            } => AttributeValue::BodySection {
+                section,
+                index,
+                data: data.map(to_owned_cow),
+            },
+            AttributeValue::BodyStructure(body) => AttributeValue::BodyStructure(body.into_owned()),
+            AttributeValue::Envelope(e) => AttributeValue::Envelope(Box::new(e.into_owned())),
+            AttributeValue::Flags(v) => {
+                AttributeValue::Flags(v.into_iter().map(to_owned_cow).collect())
+            }
+            AttributeValue::InternalDate(v) => AttributeValue::InternalDate(to_owned_cow(v)),
+            AttributeValue::ModSeq(v) => AttributeValue::ModSeq(v),
+            AttributeValue::Rfc822(v) => AttributeValue::Rfc822(v.map(to_owned_cow)),
+            AttributeValue::Rfc822Header(v) => AttributeValue::Rfc822Header(v.map(to_owned_cow)),
+            AttributeValue::Rfc822Size(v) => AttributeValue::Rfc822Size(v),
+            AttributeValue::Rfc822Text(v) => AttributeValue::Rfc822Text(v.map(to_owned_cow)),
+            AttributeValue::Uid(v) => AttributeValue::Uid(v),
+            AttributeValue::GmailLabels(v) => {
+                AttributeValue::GmailLabels(v.into_iter().map(to_owned_cow).collect())
+            }
+            AttributeValue::GmailMsgId(v) => AttributeValue::GmailMsgId(v),
+            AttributeValue::GmailThrId(v) => AttributeValue::GmailThrId(v),
+            AttributeValue::EmailId(v) => AttributeValue::EmailId(to_owned_cow(v)),
+            AttributeValue::ThreadId(v) => AttributeValue::ThreadId(v.map(to_owned_cow)),
+            AttributeValue::Unknown => AttributeValue::Unknown,
+        }
+    }
+}
+
 fn msg_att(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
     alt((
         msg_att_body_section,
@@ -705,12 +1138,36 @@ fn message_data_expunge(i: &[u8]) -> IResult<&[u8], u32> {
     terminated(number, tag_no_case(" EXPUNGE")).parse(i)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequestId(pub String);
+
+impl RequestId {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
 // tag             = 1*<any ASTRING-CHAR except "+">
 fn imap_tag(i: &[u8]) -> IResult<&[u8], RequestId> {
     map(map_res(take_while1(is_tag_char), from_utf8), |s| {
         RequestId(s.to_string())
     })
     .parse(i)
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Outcome<'a> {
+    pub code: Option<ResponseCode<'a>>,
+    pub information: Option<Cow<'a, str>>,
+}
+
+impl Outcome<'_> {
+    pub fn into_owned(self) -> Outcome<'static> {
+        Outcome {
+            code: self.code.map(ResponseCode::into_owned),
+            information: self.information.map(to_owned_cow),
+        }
+    }
 }
 
 // This is not quite according to spec, which mandates the following:
@@ -816,7 +1273,7 @@ pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::*;
+    use super::{AttributeValue, Capability, NameAttribute};
     use assert_matches::assert_matches;
     use std::borrow::Cow;
 
@@ -927,6 +1384,42 @@ mod tests {
                         "$Forwarded"
                     ])
             }
+        );
+    }
+
+    /// Tests that the [`NameAttribute::into_owned`] method returns the
+    /// same value (the ownership should only change).
+    #[test]
+    fn test_name_attribute_into_owned() {
+        let name_attributes = [
+            // RFC 3501
+            NameAttribute::NoInferiors,
+            NameAttribute::NoSelect,
+            NameAttribute::Marked,
+            NameAttribute::Unmarked,
+            // RFC 6154
+            NameAttribute::All,
+            NameAttribute::Archive,
+            NameAttribute::Drafts,
+            NameAttribute::Flagged,
+            NameAttribute::Junk,
+            NameAttribute::Sent,
+            NameAttribute::Trash,
+            // Extensions not supported by this crate
+            NameAttribute::Extension(Cow::Borrowed("Foobar")),
+        ];
+
+        for name_attribute in name_attributes {
+            let owned_name_attribute = name_attribute.clone().into_owned();
+            assert_eq!(name_attribute, owned_name_attribute);
+        }
+    }
+
+    #[test]
+    fn test_attribute_value_unknown_into_owned() {
+        assert_eq!(
+            AttributeValue::Unknown.into_owned(),
+            AttributeValue::Unknown
         );
     }
 }

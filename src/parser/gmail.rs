@@ -6,7 +6,7 @@ use nom::combinator::map;
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 
-use crate::{AttributeValue, MailboxDatum};
+use crate::parser::rfc3501::{AttributeValue, MailboxDatum};
 
 use super::core::{number_64, parenthesized_list, quoted_utf8};
 use super::rfc3501::flag;
@@ -53,7 +53,7 @@ pub(crate) fn mailbox_data_gmail_thrid(i: &[u8]) -> IResult<&[u8], MailboxDatum<
 
 #[cfg(test)]
 mod tests {
-    use crate::types::*;
+    use super::AttributeValue;
     #[test]
     fn test_gmail_labels() {
         let env = br#"X-GM-LABELS (\Inbox \Sent Important "Muy Importante") "#;

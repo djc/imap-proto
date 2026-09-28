@@ -3,8 +3,6 @@ use std::marker::PhantomData;
 use std::ops::{RangeFrom, RangeInclusive};
 use std::str;
 
-use crate::types::{AttrMacro, Attribute, State};
-
 pub struct CommandBuilder {}
 
 impl CommandBuilder {
@@ -119,6 +117,14 @@ impl From<SelectCommand<select::Params>> for Command {
             next_state: Some(State::Selected),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum State {
+    NotAuthenticated,
+    Authenticated,
+    Selected,
+    Logout,
 }
 
 pub mod select {
@@ -261,6 +267,24 @@ fn push_attr(cmd: &mut Vec<u8>, attr: Attribute) {
     );
 }
 
+#[derive(Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum Attribute {
+    Body,
+    Envelope,
+    Flags,
+    InternalDate,
+    ModSeq, // RFC 4551, section 3.3.2
+    Rfc822,
+    Rfc822Size,
+    Rfc822Text,
+    Uid,
+    /// https://developers.google.com/gmail/imap/imap-extensions#access_to_gmail_labels_x-gm-labels
+    GmailLabels,
+    GmailMsgId,
+    GmailThrId,
+}
+
 impl From<FetchCommand<fetch::Attributes>> for Command {
     fn from(mut cmd: FetchCommand<fetch::Attributes>) -> Command {
         cmd.args.push(b')');
@@ -334,6 +358,13 @@ fn quoted_string(s: &str) -> Result<Cow<'_, str>, &'static str> {
         // unwrapping here should be okay.
         Ok(Cow::Owned(String::from_utf8(new).unwrap()))
     }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum AttrMacro {
+    All,
+    Fast,
+    Full,
 }
 
 #[cfg(test)]

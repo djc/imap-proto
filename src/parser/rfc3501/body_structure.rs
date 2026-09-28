@@ -9,10 +9,30 @@ use nom::{
 };
 use std::borrow::Cow;
 
-use crate::{
-    parser::{core::*, rfc3501::envelope},
-    types::*,
+use crate::parser::{
+    core::*,
+    rfc3501::{envelope, to_owned_cow, AttributeValue, Envelope},
 };
+
+pub struct BodyFields<'a> {
+    pub param: BodyParams<'a>,
+    pub id: Option<Cow<'a, str>>,
+    pub description: Option<Cow<'a, str>>,
+    pub transfer_encoding: ContentEncoding<'a>,
+    pub octets: u32,
+}
+
+impl<'a> BodyFields<'a> {
+    pub fn into_owned(self) -> BodyFields<'static> {
+        BodyFields {
+            param: body_param_owned(self.param),
+            id: self.id.map(to_owned_cow),
+            description: self.description.map(to_owned_cow),
+            transfer_encoding: self.transfer_encoding.into_owned(),
+            octets: self.octets,
+        }
+    }
+}
 
 // body-fields     = body-fld-param SP body-fld-id SP body-fld-desc SP
 //                   body-fld-enc SP body-fld-octets
@@ -45,6 +65,28 @@ fn body_fields(i: &[u8]) -> IResult<&[u8], BodyFields<'_>> {
     ))
 }
 
+pub struct BodyExt1Part<'a> {
+    pub md5: Option<Cow<'a, str>>,
+    pub disposition: Option<ContentDisposition<'a>>,
+    pub language: Option<Vec<Cow<'a, str>>>,
+    pub location: Option<Cow<'a, str>>,
+    pub extension: Option<BodyExtension<'a>>,
+}
+
+impl<'a> BodyExt1Part<'a> {
+    pub fn into_owned(self) -> BodyExt1Part<'static> {
+        BodyExt1Part {
+            md5: self.md5.map(to_owned_cow),
+            disposition: self.disposition.map(|v| v.into_owned()),
+            language: self
+                .language
+                .map(|v| v.into_iter().map(to_owned_cow).collect()),
+            location: self.location.map(to_owned_cow),
+            extension: self.extension.map(|v| v.into_owned()),
+        }
+    }
+}
+
 // body-ext-1part  = body-fld-md5 [SP body-fld-dsp [SP body-fld-lang
 //                   [SP body-fld-loc *(SP body-extension)]]]
 //                     ; MUST NOT be returned on non-extensible
@@ -72,6 +114,28 @@ fn body_ext_1part(i: &[u8]) -> IResult<&[u8], BodyExt1Part<'_>> {
     ))
 }
 
+pub struct BodyExtMPart<'a> {
+    pub param: BodyParams<'a>,
+    pub disposition: Option<ContentDisposition<'a>>,
+    pub language: Option<Vec<Cow<'a, str>>>,
+    pub location: Option<Cow<'a, str>>,
+    pub extension: Option<BodyExtension<'a>>,
+}
+
+impl<'a> BodyExtMPart<'a> {
+    pub fn into_owned(self) -> BodyExtMPart<'static> {
+        BodyExtMPart {
+            param: body_param_owned(self.param),
+            disposition: self.disposition.map(|v| v.into_owned()),
+            language: self
+                .language
+                .map(|v| v.into_iter().map(to_owned_cow).collect()),
+            location: self.location.map(to_owned_cow),
+            extension: self.extension.map(|v| v.into_owned()),
+        }
+    }
+}
+
 // body-ext-mpart  = body-fld-param [SP body-fld-dsp [SP body-fld-lang
 //                   [SP body-fld-loc *(SP body-extension)]]]
 //                     ; MUST NOT be returned on non-extensible
@@ -96,6 +160,29 @@ fn body_ext_mpart(i: &[u8]) -> IResult<&[u8], BodyExtMPart<'_>> {
             extension,
         },
     ))
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ContentEncoding<'a> {
+    SevenBit,
+    EightBit,
+    Binary,
+    Base64,
+    QuotedPrintable,
+    Other(Cow<'a, str>),
+}
+
+impl<'a> ContentEncoding<'a> {
+    pub fn into_owned(self) -> ContentEncoding<'static> {
+        match self {
+            ContentEncoding::SevenBit => ContentEncoding::SevenBit,
+            ContentEncoding::EightBit => ContentEncoding::EightBit,
+            ContentEncoding::Binary => ContentEncoding::Binary,
+            ContentEncoding::Base64 => ContentEncoding::Base64,
+            ContentEncoding::QuotedPrintable => ContentEncoding::QuotedPrintable,
+            ContentEncoding::Other(v) => ContentEncoding::Other(to_owned_cow(v)),
+        }
+    }
 }
 
 // RFC 3501 defines `body-fld-enc` as a string, never NIL, but some servers send
@@ -143,6 +230,25 @@ fn body_param(i: &[u8]) -> IResult<&[u8], BodyParams<'_>> {
         ),
     ))
     .parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum BodyExtension<'a> {
+    Num(u32),
+    Str(Option<Cow<'a, str>>),
+    List(Vec<BodyExtension<'a>>),
+}
+
+impl<'a> BodyExtension<'a> {
+    pub fn into_owned(self) -> BodyExtension<'static> {
+        match self {
+            BodyExtension::Num(v) => BodyExtension::Num(v),
+            BodyExtension::Str(v) => BodyExtension::Str(v.map(to_owned_cow)),
+            BodyExtension::List(v) => {
+                BodyExtension::List(v.into_iter().map(|v| v.into_owned()).collect())
+            }
+        }
+    }
 }
 
 fn body_extension(i: &[u8]) -> IResult<&[u8], BodyExtension<'_>> {
@@ -303,6 +409,86 @@ fn body_type_multipart(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     .parse(i)
 }
 
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Eq, PartialEq)]
+pub enum BodyStructure<'a> {
+    Basic {
+        common: BodyContentCommon<'a>,
+        other: BodyContentSinglePart<'a>,
+        extension: Option<BodyExtension<'a>>,
+    },
+    Text {
+        common: BodyContentCommon<'a>,
+        other: BodyContentSinglePart<'a>,
+        lines: u32,
+        extension: Option<BodyExtension<'a>>,
+    },
+    Message {
+        common: BodyContentCommon<'a>,
+        other: BodyContentSinglePart<'a>,
+        envelope: Envelope<'a>,
+        body: Box<BodyStructure<'a>>,
+        lines: u32,
+        extension: Option<BodyExtension<'a>>,
+    },
+    Multipart {
+        common: BodyContentCommon<'a>,
+        bodies: Vec<BodyStructure<'a>>,
+        extension: Option<BodyExtension<'a>>,
+    },
+}
+
+impl<'a> BodyStructure<'a> {
+    pub fn into_owned(self) -> BodyStructure<'static> {
+        match self {
+            BodyStructure::Basic {
+                common,
+                other,
+                extension,
+            } => BodyStructure::Basic {
+                common: common.into_owned(),
+                other: other.into_owned(),
+                extension: extension.map(|v| v.into_owned()),
+            },
+            BodyStructure::Text {
+                common,
+                other,
+                lines,
+                extension,
+            } => BodyStructure::Text {
+                common: common.into_owned(),
+                other: other.into_owned(),
+                lines,
+                extension: extension.map(|v| v.into_owned()),
+            },
+            BodyStructure::Message {
+                common,
+                other,
+                envelope,
+                body,
+                lines,
+                extension,
+            } => BodyStructure::Message {
+                common: common.into_owned(),
+                other: other.into_owned(),
+                envelope: envelope.into_owned(),
+                body: Box::new(body.into_owned()),
+                lines,
+                extension: extension.map(|v| v.into_owned()),
+            },
+            BodyStructure::Multipart {
+                common,
+                bodies,
+                extension,
+            } => BodyStructure::Multipart {
+                common: common.into_owned(),
+                bodies: bodies.into_iter().map(|v| v.into_owned()).collect(),
+                extension: extension.map(|v| v.into_owned()),
+            },
+        }
+    }
+}
+
 pub(crate) fn body(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     paren_delimited(alt((
         body_type_text,
@@ -311,6 +497,90 @@ pub(crate) fn body(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
         body_type_multipart,
     )))
     .parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct BodyContentCommon<'a> {
+    pub ty: ContentType<'a>,
+    pub disposition: Option<ContentDisposition<'a>>,
+    pub language: Option<Vec<Cow<'a, str>>>,
+    pub location: Option<Cow<'a, str>>,
+}
+
+impl<'a> BodyContentCommon<'a> {
+    pub fn into_owned(self) -> BodyContentCommon<'static> {
+        BodyContentCommon {
+            ty: self.ty.into_owned(),
+            disposition: self.disposition.map(|v| v.into_owned()),
+            language: self
+                .language
+                .map(|v| v.into_iter().map(to_owned_cow).collect()),
+            location: self.location.map(to_owned_cow),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct BodyContentSinglePart<'a> {
+    pub id: Option<Cow<'a, str>>,
+    pub md5: Option<Cow<'a, str>>,
+    pub description: Option<Cow<'a, str>>,
+    pub transfer_encoding: ContentEncoding<'a>,
+    pub octets: u32,
+}
+
+impl<'a> BodyContentSinglePart<'a> {
+    pub fn into_owned(self) -> BodyContentSinglePart<'static> {
+        BodyContentSinglePart {
+            id: self.id.map(to_owned_cow),
+            md5: self.md5.map(to_owned_cow),
+            description: self.description.map(to_owned_cow),
+            transfer_encoding: self.transfer_encoding.into_owned(),
+            octets: self.octets,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ContentType<'a> {
+    pub ty: Cow<'a, str>,
+    pub subtype: Cow<'a, str>,
+    pub params: BodyParams<'a>,
+}
+
+impl<'a> ContentType<'a> {
+    pub fn into_owned(self) -> ContentType<'static> {
+        ContentType {
+            ty: to_owned_cow(self.ty),
+            subtype: to_owned_cow(self.subtype),
+            params: body_param_owned(self.params),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ContentDisposition<'a> {
+    pub ty: Cow<'a, str>,
+    pub params: BodyParams<'a>,
+}
+
+impl<'a> ContentDisposition<'a> {
+    pub fn into_owned(self) -> ContentDisposition<'static> {
+        ContentDisposition {
+            ty: to_owned_cow(self.ty),
+            params: body_param_owned(self.params),
+        }
+    }
+}
+
+pub type BodyParams<'a> = Option<Vec<(Cow<'a, str>, Cow<'a, str>)>>;
+
+pub(crate) fn body_param_owned(v: BodyParams<'_>) -> BodyParams<'static> {
+    v.map(|v| {
+        v.into_iter()
+            .map(|(k, v)| (to_owned_cow(k), to_owned_cow(v)))
+            .collect()
+    })
 }
 
 pub(crate) fn msg_att_body_structure(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {

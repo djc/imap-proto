@@ -1,5 +1,12 @@
 use super::{bodystructure::BodyStructParser, parse_response};
-use crate::types::*;
+use crate::parser::rfc3501::body::{MessageSection, SectionPath};
+use crate::parser::rfc3501::body_structure::BodyStructure;
+use crate::parser::rfc3501::{
+    AttributeValue, Capability, MailboxDatum, MailboxListData, NameAttribute, Outcome,
+    ResponseCode, Status, StatusAttribute,
+};
+use crate::parser::rfc4314::{Acl, AclEntry, AclRight, ListRights, MyRights};
+use crate::parser::Response;
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
