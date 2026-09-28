@@ -15,8 +15,8 @@ use nom::{
     IResult, Parser,
 };
 
-use crate::parser::core::number;
-use crate::parser::rfc3501::ResponseCode;
+use crate::core::number;
+use crate::rfc3501::ResponseCode;
 
 /// Extends resp-text-code as follows:
 ///

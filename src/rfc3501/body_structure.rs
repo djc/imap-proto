@@ -9,7 +9,7 @@ use nom::{
 };
 use std::borrow::Cow;
 
-use crate::parser::{
+use crate::{
     core::*,
     rfc3501::{to_owned_cow, AttributeValue, Envelope},
 };

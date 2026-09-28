@@ -13,7 +13,7 @@ use nom::{
 };
 use std::borrow::Cow;
 
-use crate::parser::{
+use crate::{
     core::*,
     rfc3501::{MailboxDatum, ResponseCode},
     Response,
@@ -230,7 +230,7 @@ pub(crate) fn resp_text_code_metadata_no_private(i: &[u8]) -> IResult<&[u8], Res
 #[cfg(test)]
 mod tests {
     use super::{metadata_solicited, metadata_unsolicited, MailboxDatum, Response, ResponseCode};
-    use crate::parser::rfc3501::{Outcome, Status};
+    use crate::rfc3501::{Outcome, Status};
     use std::borrow::Cow;
 
     #[test]

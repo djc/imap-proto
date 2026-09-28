@@ -7,7 +7,7 @@
 
 use nom::{bytes::streaming::tag_no_case, IResult, Parser};
 
-use crate::parser::{
+use crate::{
     core::{number_64, paren_delimited},
     rfc3501::{AttributeValue, ResponseCode, StatusAttribute},
 };

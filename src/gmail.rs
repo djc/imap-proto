@@ -6,7 +6,7 @@ use nom::combinator::map;
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 
-use crate::parser::rfc3501::{AttributeValue, MailboxDatum};
+use crate::rfc3501::{AttributeValue, MailboxDatum};
 
 use super::core::{number_64, parenthesized_list, quoted_utf8};
 use super::rfc3501::flag;
