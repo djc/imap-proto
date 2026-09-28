@@ -13,8 +13,8 @@ use nom::{
     character::complete::{space0, space1},
     combinator::map,
     multi::separated_list0,
-    sequence::{preceded, separated_pair, tuple},
-    IResult,
+    sequence::{preceded, separated_pair},
+    IResult, Parser,
 };
 
 use crate::parser::core::astring_utf8;
@@ -26,7 +26,7 @@ use crate::types::*;
 /// acl_response  ::= "ACL" SP mailbox SP acl_list
 /// ```
 pub(crate) fn acl(i: &[u8]) -> IResult<&[u8], Response<'_>> {
-    let (rest, (_, _, mailbox, acls)) = tuple((tag_no_case("ACL"), space1, mailbox, acl_list))(i)?;
+    let (rest, (_, _, mailbox, acls)) = (tag_no_case("ACL"), space1, mailbox, acl_list).parse(i)?;
 
     Ok((rest, Response::Acl(Acl { mailbox, acls })))
 }
@@ -35,7 +35,7 @@ pub(crate) fn acl(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 /// acl_list  ::= *(SP acl_entry)
 /// ```
 fn acl_list(i: &[u8]) -> IResult<&[u8], Vec<AclEntry<'_>>> {
-    preceded(space0, separated_list0(space1, acl_entry))(i)
+    preceded(space0, separated_list0(space1, acl_entry)).parse(i)
 }
 
 /// ```ignore
@@ -46,7 +46,8 @@ fn acl_entry(i: &[u8]) -> IResult<&[u8], AclEntry<'_>> {
         astring_utf8,
         space1,
         map(astring_utf8, |s| map_text_to_rights(&s)),
-    )(i)?;
+    )
+    .parse(i)?;
 
     Ok((rest, AclEntry { identifier, rights }))
 }
@@ -56,7 +57,7 @@ fn acl_entry(i: &[u8]) -> IResult<&[u8], AclEntry<'_>> {
 /// list_rights_response  ::= "LISTRIGHTS" SP mailbox SP identifier SP required_rights *(SP optional_rights)
 /// ```
 pub(crate) fn list_rights(i: &[u8]) -> IResult<&[u8], Response<'_>> {
-    let (rest, (_, _, mailbox, _, identifier, _, required, optional)) = tuple((
+    let (rest, (_, _, mailbox, _, identifier, _, required, optional)) = (
         tag_no_case("LISTRIGHTS"),
         space1,
         mailbox,
@@ -65,7 +66,8 @@ pub(crate) fn list_rights(i: &[u8]) -> IResult<&[u8], Response<'_>> {
         space1,
         map(astring_utf8, |s| map_text_to_rights(&s)),
         list_rights_optional,
-    ))(i)?;
+    )
+        .parse(i)?;
 
     Ok((
         rest,
@@ -79,7 +81,7 @@ pub(crate) fn list_rights(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 }
 
 fn list_rights_optional(i: &[u8]) -> IResult<&[u8], Vec<AclRight>> {
-    let (rest, items) = preceded(space0, separated_list0(space1, astring_utf8))(i)?;
+    let (rest, items) = preceded(space0, separated_list0(space1, astring_utf8)).parse(i)?;
 
     Ok((
         rest,
@@ -95,13 +97,14 @@ fn list_rights_optional(i: &[u8]) -> IResult<&[u8], Vec<AclRight>> {
 /// my_rights_response  ::= "MYRIGHTS" SP mailbox SP rights
 /// ```
 pub(crate) fn my_rights(i: &[u8]) -> IResult<&[u8], Response<'_>> {
-    let (rest, (_, _, mailbox, _, rights)) = tuple((
+    let (rest, (_, _, mailbox, _, rights)) = (
         tag_no_case("MYRIGHTS"),
         space1,
         mailbox,
         space1,
         map(astring_utf8, |s| map_text_to_rights(&s)),
-    ))(i)?;
+    )
+        .parse(i)?;
 
     Ok((rest, Response::MyRights(MyRights { mailbox, rights })))
 }

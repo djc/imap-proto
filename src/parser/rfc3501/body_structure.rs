@@ -4,8 +4,8 @@ use nom::{
     character::streaming::char,
     combinator::{map, opt},
     multi::many1,
-    sequence::{delimited, preceded, tuple},
-    IResult,
+    sequence::{delimited, preceded},
+    IResult, Parser,
 };
 use std::borrow::Cow;
 
@@ -17,7 +17,7 @@ use crate::{
 // body-fields     = body-fld-param SP body-fld-id SP body-fld-desc SP
 //                   body-fld-enc SP body-fld-octets
 fn body_fields(i: &[u8]) -> IResult<&[u8], BodyFields<'_>> {
-    let (i, (param, _, id, _, description, _, transfer_encoding, _, octets)) = tuple((
+    let (i, (param, _, id, _, description, _, transfer_encoding, _, octets)) = (
         body_param,
         tag(" "),
         // body id seems to refer to the Message-ID or possibly Content-ID header, which
@@ -31,7 +31,8 @@ fn body_fields(i: &[u8]) -> IResult<&[u8], BodyFields<'_>> {
         body_encoding,
         tag(" "),
         number,
-    ))(i)?;
+    )
+        .parse(i)?;
     Ok((
         i,
         BodyFields {
@@ -49,7 +50,7 @@ fn body_fields(i: &[u8]) -> IResult<&[u8], BodyFields<'_>> {
 //                     ; MUST NOT be returned on non-extensible
 //                     ; "BODY" fetch
 fn body_ext_1part(i: &[u8]) -> IResult<&[u8], BodyExt1Part<'_>> {
-    let (i, (md5, disposition, language, location, extension)) = tuple((
+    let (i, (md5, disposition, language, location, extension)) = (
         // Per RFC 1864, MD5 values are base64-encoded
         opt_opt(preceded(tag(" "), nstring_utf8)),
         opt_opt(preceded(tag(" "), body_disposition)),
@@ -57,7 +58,8 @@ fn body_ext_1part(i: &[u8]) -> IResult<&[u8], BodyExt1Part<'_>> {
         // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
         opt_opt(preceded(tag(" "), nstring_utf8)),
         opt(preceded(tag(" "), body_extension)),
-    ))(i)?;
+    )
+        .parse(i)?;
     Ok((
         i,
         BodyExt1Part {
@@ -75,14 +77,15 @@ fn body_ext_1part(i: &[u8]) -> IResult<&[u8], BodyExt1Part<'_>> {
 //                     ; MUST NOT be returned on non-extensible
 //                     ; "BODY" fetch
 fn body_ext_mpart(i: &[u8]) -> IResult<&[u8], BodyExtMPart<'_>> {
-    let (i, (param, disposition, language, location, extension)) = tuple((
+    let (i, (param, disposition, language, location, extension)) = (
         opt_opt(preceded(tag(" "), body_param)),
         opt_opt(preceded(tag(" "), body_disposition)),
         opt_opt(preceded(tag(" "), body_lang)),
         // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
         opt_opt(preceded(tag(" "), nstring_utf8)),
         opt(preceded(tag(" "), body_extension)),
-    ))(i)?;
+    )
+        .parse(i)?;
     Ok((
         i,
         BodyExtMPart {
@@ -115,7 +118,8 @@ fn body_encoding(i: &[u8]) -> IResult<&[u8], ContentEncoding<'_>> {
             char('"'),
         ),
         map(string_utf8, ContentEncoding::Other),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 fn body_lang(i: &[u8]) -> IResult<&[u8], Option<Vec<Cow<'_, str>>>> {
@@ -123,7 +127,8 @@ fn body_lang(i: &[u8]) -> IResult<&[u8], Option<Vec<Cow<'_, str>>>> {
         // body language seems to refer to RFC 3066 language tags, which should be ASCII-only
         map(nstring_utf8, |v| v.map(|s| vec![s])),
         map(parenthesized_nonempty_list(string_utf8), Option::from),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 fn body_param(i: &[u8]) -> IResult<&[u8], BodyParams<'_>> {
@@ -131,12 +136,13 @@ fn body_param(i: &[u8]) -> IResult<&[u8], BodyParams<'_>> {
         map(nil, |_| None),
         map(
             parenthesized_nonempty_list(map(
-                tuple((string_utf8, tag(" "), string_utf8)),
+                (string_utf8, tag(" "), string_utf8),
                 |(key, _, val)| (key, val),
             )),
             Option::from,
         ),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 fn body_extension(i: &[u8]) -> IResult<&[u8], BodyExtension<'_>> {
@@ -149,29 +155,31 @@ fn body_extension(i: &[u8]) -> IResult<&[u8], BodyExtension<'_>> {
             parenthesized_nonempty_list(body_extension),
             BodyExtension::List,
         ),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 fn body_disposition(i: &[u8]) -> IResult<&[u8], Option<ContentDisposition<'_>>> {
     alt((
         map(nil, |_| None),
         paren_delimited(map(
-            tuple((string_utf8, tag(" "), body_param)),
+            (string_utf8, tag(" "), body_param),
             |(ty, _, params)| Some(ContentDisposition { ty, params }),
         )),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 fn body_type_basic(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     map(
-        tuple((
+        (
             string_utf8,
             tag(" "),
             string_utf8,
             tag(" "),
             body_fields,
             body_ext_1part,
-        )),
+        ),
         |(ty, _, subtype, _, fields, ext)| BodyStructure::Basic {
             common: BodyContentCommon {
                 ty: ContentType {
@@ -192,12 +200,13 @@ fn body_type_basic(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             },
             extension: ext.extension,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 fn body_type_text(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     map(
-        tuple((
+        (
             tag_no_case("\"TEXT\""),
             tag(" "),
             string_utf8,
@@ -206,7 +215,7 @@ fn body_type_text(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             tag(" "),
             number,
             body_ext_1part,
-        )),
+        ),
         |(_, _, subtype, _, fields, _, lines, ext)| BodyStructure::Text {
             common: BodyContentCommon {
                 ty: ContentType {
@@ -228,12 +237,13 @@ fn body_type_text(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             lines,
             extension: ext.extension,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     map(
-        tuple((
+        (
             tag_no_case("\"MESSAGE\" \"RFC822\""),
             tag(" "),
             body_fields,
@@ -244,7 +254,7 @@ fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             tag(" "),
             number,
             body_ext_1part,
-        )),
+        ),
         |(_, _, fields, _, envelope, _, body, _, lines, ext)| BodyStructure::Message {
             common: BodyContentCommon {
                 ty: ContentType {
@@ -268,12 +278,13 @@ fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             lines,
             extension: ext.extension,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 fn body_type_multipart(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     map(
-        tuple((many1(body), tag(" "), string_utf8, body_ext_mpart)),
+        (many1(body), tag(" "), string_utf8, body_ext_mpart),
         |(bodies, _, subtype, ext)| BodyStructure::Multipart {
             common: BodyContentCommon {
                 ty: ContentType {
@@ -288,7 +299,8 @@ fn body_type_multipart(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             bodies,
             extension: ext.extension,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 pub(crate) fn body(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
@@ -297,13 +309,15 @@ pub(crate) fn body(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
         body_type_message,
         body_type_basic,
         body_type_multipart,
-    )))(i)
+    )))
+    .parse(i)
 }
 
 pub(crate) fn msg_att_body_structure(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
-    map(tuple((tag_no_case("BODYSTRUCTURE "), body)), |(_, body)| {
+    map((tag_no_case("BODYSTRUCTURE "), body), |(_, body)| {
         AttributeValue::BodyStructure(body)
-    })(i)
+    })
+    .parse(i)
 }
 
 #[cfg(test)]

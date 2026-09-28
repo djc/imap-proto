@@ -1,5 +1,5 @@
 use crate::types::Response;
-use nom::{branch::alt, IResult};
+use nom::{branch::alt, IResult, Parser};
 
 pub mod core;
 
@@ -24,7 +24,8 @@ pub fn parse_response(msg: &[u8]) -> ParseResult<'_> {
         rfc3501::continue_req,
         rfc3501::response_data,
         rfc3501::response_tagged,
-    ))(msg)
+    ))
+    .parse(msg)
 }
 
 pub type ParseResult<'a> = IResult<&'a [u8], Response<'a>>;

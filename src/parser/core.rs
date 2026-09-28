@@ -2,10 +2,10 @@ use nom::{
     branch::alt,
     bytes::streaming::{escaped, tag, tag_no_case, take, take_while, take_while1},
     character::streaming::{char, digit1, one_of, space0},
-    combinator::{map, map_res, opt},
+    combinator::{map, map_res, opt, peek},
     multi::{separated_list0, separated_list1},
-    sequence::{delimited, preceded, tuple},
-    IResult,
+    sequence::{delimited, preceded},
+    IResult, Parser,
 };
 
 use std::borrow::Cow;
@@ -44,7 +44,7 @@ pub fn number_64(i: &[u8]) -> IResult<&[u8], u64> {
 //                    ; these two regardless of order.
 //                    ; seq-number is a nz-number
 pub fn sequence_range(i: &[u8]) -> IResult<&[u8], std::ops::RangeInclusive<u32>> {
-    map(tuple((number, tag(":"), number)), |(s, _, e)| s..=e)(i)
+    map((number, tag(":"), number), |(s, _, e)| s..=e).parse(i)
 }
 
 // sequence-set    = (seq-number / seq-range) *("," sequence-set)
@@ -52,14 +52,14 @@ pub fn sequence_range(i: &[u8]) -> IResult<&[u8], std::ops::RangeInclusive<u32>>
 //                     ; Servers MAY coalesce overlaps and/or execute the
 //                     ; sequence in any order.
 pub fn sequence_set(i: &[u8]) -> IResult<&[u8], Vec<std::ops::RangeInclusive<u32>>> {
-    separated_list1(tag(","), alt((sequence_range, map(number, |n| n..=n))))(i)
+    separated_list1(tag(","), alt((sequence_range, map(number, |n| n..=n)))).parse(i)
 }
 
 // ----- string -----
 
 // string = quoted / literal
 pub fn string(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    alt((quoted, literal))(i)
+    alt((quoted, literal)).parse(i)
 }
 
 #[inline]
@@ -72,25 +72,30 @@ fn lossy_str(bytes: &[u8]) -> Cow<'_, str> {
 // MIME filenames in BODYSTRUCTURE responses). Strict from_utf8 would
 // fail, breaking the entire response stream on a single bad mail.
 pub fn string_utf8(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
-    map(string, lossy_str)(i)
+    map(string, lossy_str).parse(i)
 }
 
 // quoted = DQUOTE *QUOTED-CHAR DQUOTE
 pub fn quoted(i: &[u8]) -> IResult<&[u8], &[u8]> {
     delimited(
         char('"'),
-        escaped(
-            take_while1(|byte| is_text_char(byte) && !is_quoted_specials(byte)),
-            '\\',
-            one_of("\\\""),
-        ),
+        alt((
+            // nom 8's `escaped` rejects empty input, so match an empty quoted string separately.
+            map(peek(char('"')), |_| &b""[..]),
+            escaped(
+                take_while1(|byte| is_text_char(byte) && !is_quoted_specials(byte)),
+                '\\',
+                one_of("\\\""),
+            ),
+        )),
         char('"'),
-    )(i)
+    )
+    .parse(i)
 }
 
 // quoted bytes as utf8 — lossy, see comment on string_utf8.
 pub fn quoted_utf8(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
-    map(quoted, lossy_str)(i)
+    map(quoted, lossy_str).parse(i)
 }
 
 // quoted-specials = DQUOTE / "\"
@@ -101,9 +106,9 @@ pub fn is_quoted_specials(c: u8) -> bool {
 /// literal = "{" number "}" CRLF *CHAR8
 ///            ; Number represents the number of CHAR8s
 pub fn literal(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    let mut parser = tuple((tag(b"{"), number, tag(b"}"), tag("\r\n")));
+    let mut parser = (tag("{"), number, tag("}"), tag("\r\n"));
 
-    let (remaining, (_, count, _, _)) = parser(input)?;
+    let (remaining, (_, count, _, _)) = parser.parse(input)?;
 
     let (remaining, data) = take(count)(remaining)?;
 
@@ -114,12 +119,12 @@ pub fn literal(input: &[u8]) -> IResult<&[u8], &[u8]> {
 
 // astring = 1*ASTRING-CHAR / string
 pub fn astring(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    alt((take_while1(is_astring_char), string))(i)
+    alt((take_while1(is_astring_char), string)).parse(i)
 }
 
 // astring bytes as utf8 — lossy, see comment on string_utf8.
 pub fn astring_utf8(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
-    map(astring, lossy_str)(i)
+    map(astring, lossy_str).parse(i)
 }
 
 // ASTRING-CHAR = ATOM-CHAR / resp-specials
@@ -151,19 +156,19 @@ pub fn is_resp_specials(c: u8) -> bool {
 
 // atom = 1*ATOM-CHAR
 pub fn atom(i: &[u8]) -> IResult<&[u8], &str> {
-    map_res(take_while1(is_atom_char), from_utf8)(i)
+    map_res(take_while1(is_atom_char), from_utf8).parse(i)
 }
 
 // ----- nstring ----- nil or string
 
 // nstring = string / nil
 pub fn nstring(i: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
-    alt((map(nil, |_| None), map(string, Some)))(i)
+    alt((map(nil, |_| None), map(string, Some))).parse(i)
 }
 
 // nstring bytes as utf8 — lossy, see comment on string_utf8.
 pub fn nstring_utf8(i: &[u8]) -> IResult<&[u8], Option<Cow<'_, str>>> {
-    alt((map(nil, |_| None), map(string_utf8, Some)))(i)
+    alt((map(nil, |_| None), map(string_utf8, Some))).parse(i)
 }
 
 // nil = "NIL"
@@ -175,7 +180,7 @@ pub fn nil(i: &[u8]) -> IResult<&[u8], &[u8]> {
 
 // text = 1*TEXT-CHAR — lossy, see comment on string_utf8.
 pub fn text(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
-    map(take_while(is_text_char), lossy_str)(i)
+    map(take_while(is_text_char), lossy_str).parse(i)
 }
 
 // TEXT-CHAR = <any CHAR except CR and LF>
@@ -207,9 +212,9 @@ pub fn is_list_wildcards(c: u8) -> bool {
     c == b'%' || c == b'*'
 }
 
-pub fn paren_delimited<'a, F, O, E>(f: F) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], O, E>
+pub fn paren_delimited<'a, F, O, E>(f: F) -> impl Parser<&'a [u8], Output = O, Error = E>
 where
-    F: FnMut(&'a [u8]) -> IResult<&'a [u8], O, E>,
+    F: Parser<&'a [u8], Output = O, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     delimited(char('('), f, char(')'))
@@ -217,9 +222,9 @@ where
 
 pub fn parenthesized_nonempty_list<'a, F, O, E>(
     f: F,
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<O>, E>
+) -> impl Parser<&'a [u8], Output = Vec<O>, Error = E>
 where
-    F: FnMut(&'a [u8]) -> IResult<&'a [u8], O, E>,
+    F: Parser<&'a [u8], Output = O, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     delimited(
@@ -227,13 +232,13 @@ where
         separated_list1(char(' '), f),
         // Targeted lenience: Some real-world IMAP servers
         // insert extra whitespace before the closing parenthesis.
-        tuple((space0, char(')'))),
+        (space0, char(')')),
     )
 }
 
-pub fn parenthesized_list<'a, F, O, E>(f: F) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<O>, E>
+pub fn parenthesized_list<'a, F, O, E>(f: F) -> impl Parser<&'a [u8], Output = Vec<O>, Error = E>
 where
-    F: FnMut(&'a [u8]) -> IResult<&'a [u8], O, E>,
+    F: Parser<&'a [u8], Output = O, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     delimited(
@@ -246,11 +251,12 @@ where
     )
 }
 
-pub fn opt_opt<'a, F, O, E>(mut f: F) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Option<O>, E>
+pub fn opt_opt<'a, F, O, E>(mut f: F) -> impl Parser<&'a [u8], Output = Option<O>, Error = E>
 where
-    F: FnMut(&'a [u8]) -> IResult<&'a [u8], Option<O>, E>,
+    F: Parser<&'a [u8], Output = Option<O>, Error = E>,
+    E: nom::error::ParseError<&'a [u8]>,
 {
-    move |i: &[u8]| match f(i) {
+    move |i: &'a [u8]| match f.parse(i) {
         Ok((i, o)) => Ok((i, o)),
         Err(nom::Err::Error(_)) => Ok((i, None)),
         Err(e) => Err(e),

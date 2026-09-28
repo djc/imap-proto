@@ -5,12 +5,8 @@
 //!
 
 use nom::{
-    bytes::streaming::tag_no_case,
-    character::streaming::char,
-    combinator::map,
-    multi::many0,
-    sequence::{preceded, tuple},
-    IResult,
+    bytes::streaming::tag_no_case, character::streaming::char, combinator::map, multi::many0,
+    sequence::preceded, IResult, Parser,
 };
 use std::borrow::Cow;
 
@@ -21,17 +17,18 @@ use crate::types::*;
 // to a ENABLE command.
 // [RFC5161 - 3.2 The ENABLED Response](https://tools.ietf.org/html/rfc5161#section-3.2)
 pub(crate) fn resp_enabled(i: &[u8]) -> IResult<&[u8], Response<'_>> {
-    map(enabled_data, Response::Capabilities)(i)
+    map(enabled_data, Response::Capabilities).parse(i)
 }
 
 fn enabled_data(i: &[u8]) -> IResult<&[u8], Vec<Capability<'_>>> {
-    let (i, (_, capabilities)) = tuple((
+    let (i, (_, capabilities)) = (
         tag_no_case("ENABLED"),
         many0(preceded(char(' '), capability)),
-    ))(i)?;
+    )
+        .parse(i)?;
     Ok((i, capabilities))
 }
 
 fn capability(i: &[u8]) -> IResult<&[u8], Capability<'_>> {
-    map(map(atom, Cow::Borrowed), Capability::Atom)(i)
+    map(map(atom, Cow::Borrowed), Capability::Atom).parse(i)
 }
