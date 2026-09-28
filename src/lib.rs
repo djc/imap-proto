@@ -3,19 +3,8 @@ use std::collections::HashMap;
 
 use nom::{branch::alt, IResult, Parser};
 
-pub mod builders;
-
 pub mod core;
 use crate::core::to_owned_cow;
-
-pub mod bodystructure;
-
-pub mod gmail;
-
-pub mod rfc2087;
-pub use rfc2087::{Quota, QuotaResource, QuotaResourceName, QuotaRoot};
-
-pub mod rfc2971;
 
 pub mod rfc3501;
 pub use rfc3501::body::{MessageSection, SectionPath};
@@ -28,21 +17,19 @@ pub use rfc3501::{
     Outcome, RequestId, ResponseCode, Status, StatusAttribute,
 };
 
+pub mod bodystructure;
+pub mod builders;
+pub mod gmail;
+pub mod rfc2087;
+use rfc2087::{Quota, QuotaRoot};
+pub mod rfc2971;
 pub mod rfc4314;
-pub use rfc4314::{Acl, AclEntry, AclRight, ListRights, MyRights};
-
+use rfc4314::{Acl, ListRights, MyRights};
 pub mod rfc4315;
-pub use rfc4315::UidSetMember;
-
 pub mod rfc4551;
-
 pub mod rfc5161;
-
 pub mod rfc5256;
-
 pub mod rfc5464;
-pub use rfc5464::Metadata;
-
 pub mod rfc7162;
 
 #[cfg(test)]
