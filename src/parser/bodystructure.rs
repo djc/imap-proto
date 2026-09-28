@@ -33,10 +33,7 @@ impl<'a> BodyStructParser<'a> {
     /// # Arguments
     ///
     /// * `func` - The filter used to search elements within the bodystructure.
-    pub fn search<F>(&self, func: F) -> Option<Vec<u32>>
-    where
-        F: Fn(&'a BodyStructure<'a>) -> bool,
-    {
+    pub fn search(&self, func: impl Fn(&'a BodyStructure<'a>) -> bool) -> Option<Vec<u32>> {
         let elem: Vec<_> = self
             .map
             .iter()

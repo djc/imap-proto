@@ -212,19 +212,19 @@ pub fn is_list_wildcards(c: u8) -> bool {
     c == b'%' || c == b'*'
 }
 
-pub fn paren_delimited<'a, F, O, E>(f: F) -> impl Parser<&'a [u8], Output = O, Error = E>
+pub fn paren_delimited<'a, O, E>(
+    f: impl Parser<&'a [u8], Output = O, Error = E>,
+) -> impl Parser<&'a [u8], Output = O, Error = E>
 where
-    F: Parser<&'a [u8], Output = O, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     delimited(char('('), f, char(')'))
 }
 
-pub fn parenthesized_nonempty_list<'a, F, O, E>(
-    f: F,
+pub fn parenthesized_nonempty_list<'a, O, E>(
+    f: impl Parser<&'a [u8], Output = O, Error = E>,
 ) -> impl Parser<&'a [u8], Output = Vec<O>, Error = E>
 where
-    F: Parser<&'a [u8], Output = O, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     delimited(
@@ -236,9 +236,10 @@ where
     )
 }
 
-pub fn parenthesized_list<'a, F, O, E>(f: F) -> impl Parser<&'a [u8], Output = Vec<O>, Error = E>
+pub fn parenthesized_list<'a, O, E>(
+    f: impl Parser<&'a [u8], Output = O, Error = E>,
+) -> impl Parser<&'a [u8], Output = Vec<O>, Error = E>
 where
-    F: Parser<&'a [u8], Output = O, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     delimited(
@@ -251,9 +252,10 @@ where
     )
 }
 
-pub fn opt_opt<'a, F, O, E>(mut f: F) -> impl Parser<&'a [u8], Output = Option<O>, Error = E>
+pub fn opt_opt<'a, O, E>(
+    mut f: impl Parser<&'a [u8], Output = Option<O>, Error = E>,
+) -> impl Parser<&'a [u8], Output = Option<O>, Error = E>
 where
-    F: Parser<&'a [u8], Output = Option<O>, Error = E>,
     E: nom::error::ParseError<&'a [u8]>,
 {
     move |i: &'a [u8]| match f.parse(i) {
