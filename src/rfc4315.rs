@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc4315
+//! <https://tools.ietf.org/html/rfc4315>
 //!
 //! The IMAP UIDPLUS Extension
 //!

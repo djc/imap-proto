@@ -1,6 +1,6 @@
 //!
 //!
-//! https://tools.ietf.org/html/rfc2971
+//! <https://tools.ietf.org/html/rfc2971>
 //!
 //! The IMAP4 ID extension
 //!

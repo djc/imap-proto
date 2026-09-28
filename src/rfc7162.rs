@@ -1,6 +1,6 @@
 //!
 //!
-//! https://tools.ietf.org/html/rfc7162
+//! <https://tools.ietf.org/html/rfc7162>
 //!
 //! The IMAP QRESYNC Extensions
 //!

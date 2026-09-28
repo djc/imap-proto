@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc5464
+//! <https://tools.ietf.org/html/rfc5464>
 //!
 //! IMAP METADATA extension
 //!

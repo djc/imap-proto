@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc3501
+//! <https://tools.ietf.org/html/rfc3501>
 //!
 //! INTERNET MESSAGE ACCESS PROTOCOL
 //!
@@ -749,7 +749,7 @@ fn opt_addresses(i: &[u8]) -> IResult<&[u8], Option<Vec<Address<'_>>>> {
 
 /// An RFC 2822 envelope
 ///
-/// See https://datatracker.ietf.org/doc/html/rfc2822#section-3.6 for more details.
+/// See <https://datatracker.ietf.org/doc/html/rfc2822#section-3.6> for more details.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Envelope<'a> {
     pub date: Option<Cow<'a, [u8]>>,
@@ -1044,7 +1044,7 @@ pub enum AttributeValue<'a> {
     Rfc822Size(u32),
     Rfc822Text(Option<Cow<'a, [u8]>>),
     Uid(u32),
-    /// https://developers.google.com/gmail/imap/imap-extensions#access_to_gmail_labels_x-gm-labels
+    /// <https://developers.google.com/gmail/imap/imap-extensions#access_to_gmail_labels_x-gm-labels>
     GmailLabels(Vec<Cow<'a, str>>),
     GmailMsgId(u64),
     GmailThrId(u64),

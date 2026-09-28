@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc5161
+//! <https://tools.ietf.org/html/rfc5161>
 //!
 //! The IMAP ENABLE Extension
 //!
