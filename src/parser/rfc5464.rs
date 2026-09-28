@@ -13,7 +13,11 @@ use nom::{
 };
 use std::borrow::Cow;
 
-use crate::{parser::core::*, types::*};
+use crate::parser::{
+    core::*,
+    rfc3501::{MailboxDatum, ResponseCode},
+    Response,
+};
 
 fn is_entry_component_char(c: u8) -> bool {
     c < 0x80 && c > 0x19 && c != b'*' && c != b'%' && c != b'/'
@@ -133,6 +137,12 @@ fn string_value(i: &[u8]) -> IResult<&[u8], Option<String>> {
     .parse(i)
 }
 
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct Metadata {
+    pub entry: String,
+    pub value: Option<String>,
+}
+
 fn keyval_list(i: &[u8]) -> IResult<&[u8], Vec<Metadata>> {
     parenthesized_nonempty_list(map(
         (
@@ -219,8 +229,8 @@ pub(crate) fn resp_text_code_metadata_no_private(i: &[u8]) -> IResult<&[u8], Res
 
 #[cfg(test)]
 mod tests {
-    use super::{metadata_solicited, metadata_unsolicited};
-    use crate::types::*;
+    use super::{metadata_solicited, metadata_unsolicited, MailboxDatum, Response, ResponseCode};
+    use crate::parser::rfc3501::{Outcome, Status};
     use std::borrow::Cow;
 
     #[test]

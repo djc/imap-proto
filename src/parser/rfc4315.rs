@@ -4,6 +4,8 @@
 //! The IMAP UIDPLUS Extension
 //!
 
+use std::ops::RangeInclusive;
+
 use nom::{
     branch::alt,
     bytes::streaming::{tag, tag_no_case},
@@ -14,7 +16,7 @@ use nom::{
 };
 
 use crate::parser::core::number;
-use crate::types::*;
+use crate::parser::rfc3501::ResponseCode;
 
 /// Extends resp-text-code as follows:
 ///
@@ -74,6 +76,24 @@ pub(crate) fn resp_text_code_uid_not_sticky(i: &[u8]) -> IResult<&[u8], Response
 /// [RFC4315 - 4 Formal Syntax](https://tools.ietf.org/html/rfc4315#section-4)
 fn uid_set(i: &[u8]) -> IResult<&[u8], Vec<UidSetMember>> {
     separated_list1(tag(","), alt((uid_range, map(number, From::from)))).parse(i)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UidSetMember {
+    UidRange(RangeInclusive<u32>),
+    Uid(u32),
+}
+
+impl From<RangeInclusive<u32>> for UidSetMember {
+    fn from(x: RangeInclusive<u32>) -> Self {
+        UidSetMember::UidRange(x)
+    }
+}
+
+impl From<u32> for UidSetMember {
+    fn from(x: u32) -> Self {
+        UidSetMember::Uid(x)
+    }
 }
 
 /// Parses the uid-set nonterminal:

@@ -9,7 +9,8 @@ use nom::{
 };
 use std::borrow::Cow;
 
-use crate::{parser::core::*, types::*};
+use crate::parser::core::*;
+use crate::parser::rfc3501::AttributeValue;
 
 pub fn section_part(i: &[u8]) -> IResult<&[u8], Vec<u32>> {
     let (i, (part, mut rest)) = (number, many0(preceded(char('.'), number))).parse(i)?;
@@ -34,12 +35,25 @@ pub fn section_msgtext(i: &[u8]) -> IResult<&[u8], MessageSection> {
     .parse(i)
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum MessageSection {
+    Header,
+    Mime,
+    Text,
+}
+
 pub fn section_text(i: &[u8]) -> IResult<&[u8], MessageSection> {
     alt((
         section_msgtext,
         map(tag_no_case("MIME"), |_| MessageSection::Mime),
     ))
     .parse(i)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum SectionPath {
+    Full(MessageSection),
+    Part(Vec<u32>, Option<MessageSection>),
 }
 
 pub fn section_spec(i: &[u8]) -> IResult<&[u8], SectionPath> {

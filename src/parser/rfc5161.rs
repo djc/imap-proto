@@ -11,7 +11,8 @@ use nom::{
 use std::borrow::Cow;
 
 use crate::parser::core::atom;
-use crate::types::*;
+use crate::parser::rfc3501::Capability;
+use crate::parser::Response;
 
 // The ENABLED response lists capabilities that were enabled in response
 // to a ENABLE command.
