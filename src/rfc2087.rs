@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc2087
+//! <https://tools.ietf.org/html/rfc2087>
 //!
 //! IMAP4 QUOTA extension
 //!
@@ -22,7 +22,7 @@ use crate::Response;
 
 use super::core::number_64;
 
-/// 5.1. QUOTA Response (https://tools.ietf.org/html/rfc2087#section-5.1)
+/// 5.1. QUOTA Response (<https://tools.ietf.org/html/rfc2087#section-5.1>)
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct Quota<'a> {
     /// quota root name
@@ -74,7 +74,7 @@ pub(crate) fn quota_list(i: &[u8]) -> IResult<&[u8], Vec<QuotaResource<'_>>> {
     .parse(i)
 }
 
-/// 5.1. QUOTA Response (https://tools.ietf.org/html/rfc2087#section-5.1)
+/// 5.1. QUOTA Response (<https://tools.ietf.org/html/rfc2087#section-5.1>)
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct QuotaResource<'a> {
     pub name: QuotaResourceName<'a>,
@@ -110,7 +110,7 @@ impl<'a> QuotaResource<'a> {
     }
 }
 
-/// https://tools.ietf.org/html/rfc2087#section-3
+/// <https://tools.ietf.org/html/rfc2087#section-3>
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub enum QuotaResourceName<'a> {
     /// Sum of messages' RFC822.SIZE, in units of 1024 octets
@@ -139,7 +139,7 @@ impl<'a> QuotaResourceName<'a> {
     }
 }
 
-/// 5.2. QUOTAROOT Response (https://tools.ietf.org/html/rfc2087#section-5.2)
+/// 5.2. QUOTAROOT Response (<https://tools.ietf.org/html/rfc2087#section-5.2>)
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct QuotaRoot<'a> {
     /// mailbox name

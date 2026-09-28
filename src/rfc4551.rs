@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc4551
+//! <https://tools.ietf.org/html/rfc4551>
 //!
 //! IMAP Extension for Conditional STORE Operation
 //! or Quick Flag Changes Resynchronization

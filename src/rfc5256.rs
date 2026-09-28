@@ -1,5 +1,5 @@
 //!
-//! https://tools.ietf.org/html/rfc5256
+//! <https://tools.ietf.org/html/rfc5256>
 //!
 //! SORT extension
 //!

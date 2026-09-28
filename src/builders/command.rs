@@ -279,7 +279,7 @@ pub enum Attribute {
     Rfc822Size,
     Rfc822Text,
     Uid,
-    /// https://developers.google.com/gmail/imap/imap-extensions#access_to_gmail_labels_x-gm-labels
+    /// <https://developers.google.com/gmail/imap/imap-extensions#access_to_gmail_labels_x-gm-labels>
     GmailLabels,
     GmailMsgId,
     GmailThrId,

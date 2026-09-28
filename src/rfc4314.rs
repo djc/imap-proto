@@ -1,9 +1,9 @@
 //!
 //! Current
-//! https://tools.ietf.org/html/rfc4314
+//! <https://tools.ietf.org/html/rfc4314>
 //!
 //! Original
-//! https://tools.ietf.org/html/rfc2086
+//! <https://tools.ietf.org/html/rfc2086>
 //!
 //! The IMAP ACL Extension
 //!
