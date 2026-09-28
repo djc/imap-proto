@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 readme = "../README.md"
 
 [dependencies]
-nom = "7"
+nom = "8"
 
 [dev-dependencies]
 assert_matches = "1.3"
