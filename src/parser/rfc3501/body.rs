@@ -42,12 +42,14 @@ pub enum MessageSection {
     Text,
 }
 
-pub fn section_text(i: &[u8]) -> IResult<&[u8], MessageSection> {
-    alt((
-        section_msgtext,
-        map(tag_no_case("MIME"), |_| MessageSection::Mime),
-    ))
-    .parse(i)
+impl MessageSection {
+    pub fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        alt((
+            section_msgtext,
+            map(tag_no_case("MIME"), |_| MessageSection::Mime),
+        ))
+        .parse(i)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -56,19 +58,24 @@ pub enum SectionPath {
     Part(Vec<u32>, Option<MessageSection>),
 }
 
-pub fn section_spec(i: &[u8]) -> IResult<&[u8], SectionPath> {
-    alt((
-        map(section_msgtext, SectionPath::Full),
-        map(
-            (section_part, opt(preceded(char('.'), section_text))),
-            |(part, text)| SectionPath::Part(part, text),
-        ),
-    ))
-    .parse(i)
+impl SectionPath {
+    pub fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        alt((
+            map(section_msgtext, SectionPath::Full),
+            map(
+                (
+                    section_part,
+                    opt(preceded(char('.'), MessageSection::parse)),
+                ),
+                |(part, text)| SectionPath::Part(part, text),
+            ),
+        ))
+        .parse(i)
+    }
 }
 
 pub fn section(i: &[u8]) -> IResult<&[u8], Option<SectionPath>> {
-    delimited(char('['), opt(section_spec), char(']')).parse(i)
+    delimited(char('['), opt(SectionPath::parse), char(']')).parse(i)
 }
 
 pub fn msg_att_body_section(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {

@@ -57,8 +57,10 @@ pub enum Status {
     Bye,
 }
 
-fn status(i: &[u8]) -> IResult<&[u8], Status> {
-    alt((status_ok, status_no, status_bad, status_preauth, status_bye)).parse(i)
+impl Status {
+    fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        alt((status_ok, status_no, status_bad, status_preauth, status_bye)).parse(i)
+    }
 }
 
 pub(crate) fn mailbox(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
@@ -213,6 +215,37 @@ pub enum ResponseCode<'a> {
 }
 
 impl<'a> ResponseCode<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        // Per the spec, the closing tag should be "] ".
+        // See `Outcome::parse` for more on why this is done differently.
+        delimited(
+            tag("["),
+            alt((
+                resp_text_code_alert,
+                resp_text_code_badcharset,
+                resp_text_code_capability,
+                resp_text_code_parse,
+                resp_text_code_permanent_flags,
+                resp_text_code_uid_validity,
+                resp_text_code_uid_next,
+                resp_text_code_unseen,
+                resp_text_code_read_only,
+                resp_text_code_read_write,
+                resp_text_code_try_create,
+                rfc4551::resp_text_code_highest_mod_seq,
+                rfc4315::resp_text_code_append_uid,
+                rfc4315::resp_text_code_copy_uid,
+                rfc4315::resp_text_code_uid_not_sticky,
+                rfc5464::resp_text_code_metadata_long_entries,
+                rfc5464::resp_text_code_metadata_max_size,
+                rfc5464::resp_text_code_metadata_too_many,
+                rfc5464::resp_text_code_metadata_no_private,
+            )),
+            tag("]"),
+        )
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> ResponseCode<'static> {
         match self {
             ResponseCode::Alert => ResponseCode::Alert,
@@ -244,37 +277,6 @@ impl<'a> ResponseCode<'a> {
     }
 }
 
-fn resp_text_code(i: &[u8]) -> IResult<&[u8], ResponseCode<'_>> {
-    // Per the spec, the closing tag should be "] ".
-    // See `resp_text` for more on why this is done differently.
-    delimited(
-        tag("["),
-        alt((
-            resp_text_code_alert,
-            resp_text_code_badcharset,
-            resp_text_code_capability,
-            resp_text_code_parse,
-            resp_text_code_permanent_flags,
-            resp_text_code_uid_validity,
-            resp_text_code_uid_next,
-            resp_text_code_unseen,
-            resp_text_code_read_only,
-            resp_text_code_read_write,
-            resp_text_code_try_create,
-            rfc4551::resp_text_code_highest_mod_seq,
-            rfc4315::resp_text_code_append_uid,
-            rfc4315::resp_text_code_copy_uid,
-            rfc4315::resp_text_code_uid_not_sticky,
-            rfc5464::resp_text_code_metadata_long_entries,
-            rfc5464::resp_text_code_metadata_max_size,
-            rfc5464::resp_text_code_metadata_too_many,
-            rfc5464::resp_text_code_metadata_no_private,
-        )),
-        tag("]"),
-    )
-    .parse(i)
-}
-
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub enum Capability<'a> {
     Imap4rev1,
@@ -283,6 +285,18 @@ pub enum Capability<'a> {
 }
 
 impl<'a> Capability<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            map(tag_no_case("IMAP4rev1"), |_| Capability::Imap4rev1),
+            map(
+                map(preceded(tag_no_case("AUTH="), atom), Cow::Borrowed),
+                Capability::Auth,
+            ),
+            map(map(atom, Cow::Borrowed), Capability::Atom),
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> Capability<'static> {
         match self {
             Capability::Imap4rev1 => Capability::Imap4rev1,
@@ -290,18 +304,6 @@ impl<'a> Capability<'a> {
             Capability::Atom(v) => Capability::Atom(to_owned_cow(v)),
         }
     }
-}
-
-fn capability(i: &[u8]) -> IResult<&[u8], Capability<'_>> {
-    alt((
-        map(tag_no_case("IMAP4rev1"), |_| Capability::Imap4rev1),
-        map(
-            map(preceded(tag_no_case("AUTH="), atom), Cow::Borrowed),
-            Capability::Auth,
-        ),
-        map(map(atom, Cow::Borrowed), Capability::Atom),
-    ))
-    .parse(i)
 }
 
 fn ensure_capabilities_contains_imap4rev(
@@ -318,7 +320,7 @@ fn capability_data(i: &[u8]) -> IResult<&[u8], Vec<Capability<'_>>> {
     map_res(
         preceded(
             tag_no_case("CAPABILITY"),
-            many0(preceded(char(' '), capability)),
+            many0(preceded(char(' '), Capability::parse)),
         ),
         ensure_capabilities_contains_imap4rev,
     )
@@ -445,6 +447,33 @@ pub enum NameAttribute<'a> {
 }
 
 impl<'a> NameAttribute<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            // RFC 3501
+            value(NameAttribute::NoInferiors, tag_no_case("\\Noinferiors")),
+            value(NameAttribute::NoSelect, tag_no_case("\\Noselect")),
+            value(NameAttribute::Marked, tag_no_case("\\Marked")),
+            value(NameAttribute::Unmarked, tag_no_case("\\Unmarked")),
+            // RFC 6154
+            value(NameAttribute::All, tag_no_case("\\All")),
+            value(NameAttribute::Archive, tag_no_case("\\Archive")),
+            value(NameAttribute::Drafts, tag_no_case("\\Drafts")),
+            value(NameAttribute::Flagged, tag_no_case("\\Flagged")),
+            value(NameAttribute::Junk, tag_no_case("\\Junk")),
+            value(NameAttribute::Sent, tag_no_case("\\Sent")),
+            value(NameAttribute::Trash, tag_no_case("\\Trash")),
+            // Extensions not supported by this crate
+            map(
+                map_res(
+                    recognize(pair(tag("\\"), take_while(is_atom_char))),
+                    from_utf8,
+                ),
+                |s| NameAttribute::Extension(Cow::Borrowed(s)),
+            ),
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> NameAttribute<'static> {
         match self {
             // RFC 3501
@@ -466,33 +495,6 @@ impl<'a> NameAttribute<'a> {
     }
 }
 
-fn name_attribute(i: &[u8]) -> IResult<&[u8], NameAttribute<'_>> {
-    alt((
-        // RFC 3501
-        value(NameAttribute::NoInferiors, tag_no_case("\\Noinferiors")),
-        value(NameAttribute::NoSelect, tag_no_case("\\Noselect")),
-        value(NameAttribute::Marked, tag_no_case("\\Marked")),
-        value(NameAttribute::Unmarked, tag_no_case("\\Unmarked")),
-        // RFC 6154
-        value(NameAttribute::All, tag_no_case("\\All")),
-        value(NameAttribute::Archive, tag_no_case("\\Archive")),
-        value(NameAttribute::Drafts, tag_no_case("\\Drafts")),
-        value(NameAttribute::Flagged, tag_no_case("\\Flagged")),
-        value(NameAttribute::Junk, tag_no_case("\\Junk")),
-        value(NameAttribute::Sent, tag_no_case("\\Sent")),
-        value(NameAttribute::Trash, tag_no_case("\\Trash")),
-        // Extensions not supported by this crate
-        map(
-            map_res(
-                recognize(pair(tag("\\"), take_while(is_atom_char))),
-                from_utf8,
-            ),
-            |s| NameAttribute::Extension(Cow::Borrowed(s)),
-        ),
-    ))
-    .parse(i)
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MailboxListData<'a> {
     pub name_attributes: Vec<NameAttribute<'a>>,
@@ -500,7 +502,25 @@ pub struct MailboxListData<'a> {
     pub name: Cow<'a, str>,
 }
 
-impl MailboxListData<'_> {
+impl<'a> MailboxListData<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        map(
+            (
+                parenthesized_list(NameAttribute::parse),
+                tag(" "),
+                alt((map(quoted_utf8, Some), map(nil, |_| None))),
+                tag(" "),
+                mailbox,
+            ),
+            |(name_attributes, _, delimiter, _, name)| MailboxListData {
+                name_attributes,
+                delimiter,
+                name,
+            },
+        )
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> MailboxListData<'static> {
         MailboxListData {
             name_attributes: self
@@ -514,35 +534,19 @@ impl MailboxListData<'_> {
     }
 }
 
-fn mailbox_list(i: &[u8]) -> IResult<&[u8], MailboxListData<'_>> {
+fn mailbox_data_list(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
     map(
-        (
-            parenthesized_list(name_attribute),
-            tag(" "),
-            alt((map(quoted_utf8, Some), map(nil, |_| None))),
-            tag(" "),
-            mailbox,
-        ),
-        |(name_attributes, _, delimiter, _, name)| MailboxListData {
-            name_attributes,
-            delimiter,
-            name,
-        },
+        preceded(tag_no_case("LIST "), MailboxListData::parse),
+        MailboxDatum::List,
     )
     .parse(i)
 }
 
-fn mailbox_data_list(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
-    map(preceded(tag_no_case("LIST "), mailbox_list), |data| {
-        MailboxDatum::List(data)
-    })
-    .parse(i)
-}
-
 fn mailbox_data_lsub(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
-    map(preceded(tag_no_case("LSUB "), mailbox_list), |data| {
-        MailboxDatum::List(data)
-    })
+    map(
+        preceded(tag_no_case("LSUB "), MailboxListData::parse),
+        MailboxDatum::List,
+    )
     .parse(i)
 }
 
@@ -557,40 +561,42 @@ pub enum StatusAttribute {
     Unseen(u32),
 }
 
-// Unlike `status_att` in the RFC syntax, this includes the value,
-// so that it can return a valid enum object instead of just a key.
-fn status_att(i: &[u8]) -> IResult<&[u8], StatusAttribute> {
-    alt((
-        rfc4551::status_att_val_highest_mod_seq,
-        map(
-            preceded(tag_no_case("MESSAGES "), number),
-            StatusAttribute::Messages,
-        ),
-        map(
-            preceded(tag_no_case("RECENT "), number),
-            StatusAttribute::Recent,
-        ),
-        map(
-            preceded(tag_no_case("UIDNEXT "), number),
-            StatusAttribute::UidNext,
-        ),
-        map(
-            preceded(tag_no_case("UIDVALIDITY "), number),
-            StatusAttribute::UidValidity,
-        ),
-        map(
-            preceded(tag_no_case("UNSEEN "), number),
-            StatusAttribute::Unseen,
-        ),
-    ))
-    .parse(i)
+impl StatusAttribute {
+    // Unlike `status_att` in the RFC syntax, this includes the value,
+    // so that it can return a valid enum object instead of just a key.
+    fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        alt((
+            rfc4551::status_att_val_highest_mod_seq,
+            map(
+                preceded(tag_no_case("MESSAGES "), number),
+                StatusAttribute::Messages,
+            ),
+            map(
+                preceded(tag_no_case("RECENT "), number),
+                StatusAttribute::Recent,
+            ),
+            map(
+                preceded(tag_no_case("UIDNEXT "), number),
+                StatusAttribute::UidNext,
+            ),
+            map(
+                preceded(tag_no_case("UIDVALIDITY "), number),
+                StatusAttribute::UidValidity,
+            ),
+            map(
+                preceded(tag_no_case("UNSEEN "), number),
+                StatusAttribute::Unseen,
+            ),
+        ))
+        .parse(i)
+    }
 }
 
 fn status_att_list(i: &[u8]) -> IResult<&[u8], Vec<StatusAttribute>> {
     // RFC 3501 specifies that the list is non-empty in the formal grammar
     //   status-att-list =  status-att SP number *(SP status-att SP number)
     // but mail.163.com sends an empty list in STATUS response anyway.
-    parenthesized_list(status_att).parse(i)
+    parenthesized_list(StatusAttribute::parse).parse(i)
 }
 
 fn mailbox_data_status(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
@@ -636,6 +642,23 @@ pub enum MailboxDatum<'a> {
 }
 
 impl<'a> MailboxDatum<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            mailbox_data_flags,
+            mailbox_data_exists,
+            mailbox_data_list,
+            mailbox_data_lsub,
+            mailbox_data_status,
+            mailbox_data_recent,
+            mailbox_data_search,
+            gmail::mailbox_data_gmail_labels,
+            gmail::mailbox_data_gmail_msgid,
+            gmail::mailbox_data_gmail_thrid,
+            rfc5256::mailbox_data_sort,
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> MailboxDatum<'static> {
         match self {
             MailboxDatum::Exists(seq) => MailboxDatum::Exists(seq),
@@ -671,23 +694,6 @@ impl<'a> MailboxDatum<'a> {
     }
 }
 
-fn mailbox_data(i: &[u8]) -> IResult<&[u8], MailboxDatum<'_>> {
-    alt((
-        mailbox_data_flags,
-        mailbox_data_exists,
-        mailbox_data_list,
-        mailbox_data_lsub,
-        mailbox_data_status,
-        mailbox_data_recent,
-        mailbox_data_search,
-        gmail::mailbox_data_gmail_labels,
-        gmail::mailbox_data_gmail_msgid,
-        gmail::mailbox_data_gmail_thrid,
-        rfc5256::mailbox_data_sort,
-    ))
-    .parse(i)
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct Address<'a> {
     pub name: Option<Cow<'a, [u8]>>,
@@ -697,6 +703,29 @@ pub struct Address<'a> {
 }
 
 impl<'a> Address<'a> {
+    // An address structure is a parenthesized list that describes an
+    // electronic mail address.
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        paren_delimited(map(
+            (
+                nstring,
+                tag(" "),
+                nstring,
+                tag(" "),
+                nstring,
+                tag(" "),
+                nstring,
+            ),
+            |(name, _, adl, _, mailbox, _, host)| Address {
+                name: name.map(Cow::Borrowed),
+                adl: adl.map(Cow::Borrowed),
+                mailbox: mailbox.map(Cow::Borrowed),
+                host: host.map(Cow::Borrowed),
+            },
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> Address<'static> {
         Address {
             name: self.name.map(to_owned_cow),
@@ -707,34 +736,11 @@ impl<'a> Address<'a> {
     }
 }
 
-// An address structure is a parenthesized list that describes an
-// electronic mail address.
-fn address(i: &[u8]) -> IResult<&[u8], Address<'_>> {
-    paren_delimited(map(
-        (
-            nstring,
-            tag(" "),
-            nstring,
-            tag(" "),
-            nstring,
-            tag(" "),
-            nstring,
-        ),
-        |(name, _, adl, _, mailbox, _, host)| Address {
-            name: name.map(Cow::Borrowed),
-            adl: adl.map(Cow::Borrowed),
-            mailbox: mailbox.map(Cow::Borrowed),
-            host: host.map(Cow::Borrowed),
-        },
-    ))
-    .parse(i)
-}
-
 fn opt_addresses(i: &[u8]) -> IResult<&[u8], Option<Vec<Address<'_>>>> {
     alt((
         map(nil, |_s| None),
         map(
-            paren_delimited(many1(terminated(address, opt(char(' '))))),
+            paren_delimited(many1(terminated(Address::parse, opt(char(' '))))),
             Some,
         ),
     ))
@@ -762,6 +768,88 @@ pub struct Envelope<'a> {
 }
 
 impl<'a> Envelope<'a> {
+    // envelope        = "(" env-date SP env-subject SP env-from SP
+    //                   env-sender SP env-reply-to SP env-to SP env-cc SP
+    //                   env-bcc SP env-in-reply-to SP env-message-id ")"
+    //
+    // env-bcc         = "(" 1*address ")" / nil
+    //
+    // env-cc          = "(" 1*address ")" / nil
+    //
+    // env-date        = nstring
+    //
+    // env-from        = "(" 1*address ")" / nil
+    //
+    // env-in-reply-to = nstring
+    //
+    // env-message-id  = nstring
+    //
+    // env-reply-to    = "(" 1*address ")" / nil
+    //
+    // env-sender      = "(" 1*address ")" / nil
+    //
+    // env-subject     = nstring
+    //
+    // env-to          = "(" 1*address ")" / nil
+    pub(crate) fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        paren_delimited(map(
+            (
+                nstring,
+                tag(" "),
+                nstring,
+                tag(" "),
+                opt_addresses,
+                tag(" "),
+                opt_addresses,
+                tag(" "),
+                opt_addresses,
+                tag(" "),
+                opt_addresses,
+                tag(" "),
+                opt_addresses,
+                tag(" "),
+                opt_addresses,
+                tag(" "),
+                nstring,
+                tag(" "),
+                nstring,
+            ),
+            |(
+                date,
+                _,
+                subject,
+                _,
+                from,
+                _,
+                sender,
+                _,
+                reply_to,
+                _,
+                to,
+                _,
+                cc,
+                _,
+                bcc,
+                _,
+                in_reply_to,
+                _,
+                message_id,
+            )| Envelope {
+                date: date.map(Cow::Borrowed),
+                subject: subject.map(Cow::Borrowed),
+                from,
+                sender,
+                reply_to,
+                to,
+                cc,
+                bcc,
+                in_reply_to: in_reply_to.map(Cow::Borrowed),
+                message_id: message_id.map(Cow::Borrowed),
+            },
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> Envelope<'static> {
         Envelope {
             date: self.date.map(to_owned_cow),
@@ -790,92 +878,11 @@ impl<'a> Envelope<'a> {
     }
 }
 
-// envelope        = "(" env-date SP env-subject SP env-from SP
-//                   env-sender SP env-reply-to SP env-to SP env-cc SP
-//                   env-bcc SP env-in-reply-to SP env-message-id ")"
-//
-// env-bcc         = "(" 1*address ")" / nil
-//
-// env-cc          = "(" 1*address ")" / nil
-//
-// env-date        = nstring
-//
-// env-from        = "(" 1*address ")" / nil
-//
-// env-in-reply-to = nstring
-//
-// env-message-id  = nstring
-//
-// env-reply-to    = "(" 1*address ")" / nil
-//
-// env-sender      = "(" 1*address ")" / nil
-//
-// env-subject     = nstring
-//
-// env-to          = "(" 1*address ")" / nil
-pub(crate) fn envelope(i: &[u8]) -> IResult<&[u8], Envelope<'_>> {
-    paren_delimited(map(
-        (
-            nstring,
-            tag(" "),
-            nstring,
-            tag(" "),
-            opt_addresses,
-            tag(" "),
-            opt_addresses,
-            tag(" "),
-            opt_addresses,
-            tag(" "),
-            opt_addresses,
-            tag(" "),
-            opt_addresses,
-            tag(" "),
-            opt_addresses,
-            tag(" "),
-            nstring,
-            tag(" "),
-            nstring,
-        ),
-        |(
-            date,
-            _,
-            subject,
-            _,
-            from,
-            _,
-            sender,
-            _,
-            reply_to,
-            _,
-            to,
-            _,
-            cc,
-            _,
-            bcc,
-            _,
-            in_reply_to,
-            _,
-            message_id,
-        )| Envelope {
-            date: date.map(Cow::Borrowed),
-            subject: subject.map(Cow::Borrowed),
-            from,
-            sender,
-            reply_to,
-            to,
-            cc,
-            bcc,
-            in_reply_to: in_reply_to.map(Cow::Borrowed),
-            message_id: message_id.map(Cow::Borrowed),
-        },
-    ))
-    .parse(i)
-}
-
 fn msg_att_envelope(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
-    map(preceded(tag_no_case("ENVELOPE "), envelope), |envelope| {
-        AttributeValue::Envelope(Box::new(envelope))
-    })
+    map(
+        preceded(tag_no_case("ENVELOPE "), Envelope::parse),
+        |envelope| AttributeValue::Envelope(Box::new(envelope)),
+    )
     .parse(i)
 }
 
@@ -1062,6 +1069,29 @@ pub enum AttributeValue<'a> {
 }
 
 impl<'a> AttributeValue<'a> {
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        alt((
+            msg_att_body_section,
+            msg_att_body_structure,
+            msg_att_envelope,
+            msg_att_internal_date,
+            msg_att_flags,
+            rfc4551::msg_att_mod_seq,
+            msg_att_rfc822,
+            msg_att_rfc822_header,
+            msg_att_rfc822_size,
+            msg_att_rfc822_text,
+            msg_att_uid,
+            gmail::msg_att_gmail_labels,
+            gmail::msg_att_gmail_msgid,
+            gmail::msg_att_gmail_thrid,
+            msg_att_emailid,
+            msg_att_threadid,
+            msg_att_unknown,
+        ))
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> AttributeValue<'static> {
         match self {
             AttributeValue::BodySection {
@@ -1097,31 +1127,8 @@ impl<'a> AttributeValue<'a> {
     }
 }
 
-fn msg_att(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
-    alt((
-        msg_att_body_section,
-        msg_att_body_structure,
-        msg_att_envelope,
-        msg_att_internal_date,
-        msg_att_flags,
-        rfc4551::msg_att_mod_seq,
-        msg_att_rfc822,
-        msg_att_rfc822_header,
-        msg_att_rfc822_size,
-        msg_att_rfc822_text,
-        msg_att_uid,
-        gmail::msg_att_gmail_labels,
-        gmail::msg_att_gmail_msgid,
-        gmail::msg_att_gmail_thrid,
-        msg_att_emailid,
-        msg_att_threadid,
-        msg_att_unknown,
-    ))
-    .parse(i)
-}
-
 fn msg_att_list(i: &[u8]) -> IResult<&[u8], Vec<AttributeValue<'_>>> {
-    parenthesized_nonempty_list(msg_att).parse(i)
+    parenthesized_nonempty_list(AttributeValue::parse).parse(i)
 }
 
 // message-data    = nz-number SP ("EXPUNGE" / ("FETCH" SP msg-att))
@@ -1142,17 +1149,17 @@ fn message_data_expunge(i: &[u8]) -> IResult<&[u8], u32> {
 pub struct RequestId(pub String);
 
 impl RequestId {
+    // tag             = 1*<any ASTRING-CHAR except "+">
+    fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        map(map_res(take_while1(is_tag_char), from_utf8), |s| {
+            RequestId(s.to_string())
+        })
+        .parse(i)
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
     }
-}
-
-// tag             = 1*<any ASTRING-CHAR except "+">
-fn imap_tag(i: &[u8]) -> IResult<&[u8], RequestId> {
-    map(map_res(take_while1(is_tag_char), from_utf8), |s| {
-        RequestId(s.to_string())
-    })
-    .parse(i)
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -1161,7 +1168,29 @@ pub struct Outcome<'a> {
     pub information: Option<Cow<'a, str>>,
 }
 
-impl Outcome<'_> {
+impl<'a> Outcome<'a> {
+    // This is not quite according to spec, which mandates the following:
+    //     ["[" resp-text-code "]" SP] text
+    // However, examples in RFC 4551 (Conditional STORE) counteract this by giving
+    // examples of `resp-text` that do not include the trailing space and text.
+    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+        map((opt(ResponseCode::parse), text), |(code, text)| {
+            let information = if text.is_empty() {
+                None
+            } else if code.is_some() {
+                Some(match text {
+                    Cow::Borrowed(s) => Cow::Borrowed(&s[1..]),
+                    Cow::Owned(s) => Cow::Owned(s[1..].to_string()),
+                })
+            } else {
+                Some(text)
+            };
+
+            Outcome { code, information }
+        })
+        .parse(i)
+    }
+
     pub fn into_owned(self) -> Outcome<'static> {
         Outcome {
             code: self.code.map(ResponseCode::into_owned),
@@ -1170,31 +1199,9 @@ impl Outcome<'_> {
     }
 }
 
-// This is not quite according to spec, which mandates the following:
-//     ["[" resp-text-code "]" SP] text
-// However, examples in RFC 4551 (Conditional STORE) counteract this by giving
-// examples of `resp-text` that do not include the trailing space and text.
-fn resp_text(i: &[u8]) -> IResult<&[u8], Outcome<'_>> {
-    map((opt(resp_text_code), text), |(code, text)| {
-        let information = if text.is_empty() {
-            None
-        } else if code.is_some() {
-            Some(match text {
-                Cow::Borrowed(s) => Cow::Borrowed(&s[1..]),
-                Cow::Owned(s) => Cow::Owned(s[1..].to_string()),
-            })
-        } else {
-            Some(text)
-        };
-
-        Outcome { code, information }
-    })
-    .parse(i)
-}
-
 // an response-text if it is at the end of a response. Empty text is then allowed without the normally needed trailing space.
 fn trailing_resp_text(i: &[u8]) -> IResult<&[u8], Outcome<'_>> {
-    map(opt((tag(" "), resp_text)), |resptext| {
+    map(opt((tag(" "), Outcome::parse)), |resptext| {
         resptext.map(|(_, tuple)| tuple).unwrap_or_default()
     })
     .parse(i)
@@ -1205,7 +1212,7 @@ pub(crate) fn continue_req(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     // Some servers do not send the space :/
     // TODO: base64
     map(
-        (tag("+"), opt(tag(" ")), resp_text, tag("\r\n")),
+        (tag("+"), opt(tag(" ")), Outcome::parse, tag("\r\n")),
         |(_, _, outcome, _)| Response::Continue(outcome),
     )
     .parse(i)
@@ -1217,7 +1224,13 @@ pub(crate) fn continue_req(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 //                     ; Status condition
 pub(crate) fn response_tagged(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     map(
-        (imap_tag, tag(" "), status, trailing_resp_text, tag("\r\n")),
+        (
+            RequestId::parse,
+            tag(" "),
+            Status::parse,
+            trailing_resp_text,
+            tag("\r\n"),
+        ),
         |(tag, _, status, outcome, _)| Response::Done {
             tag,
             status,
@@ -1235,7 +1248,7 @@ pub(crate) fn response_tagged(i: &[u8]) -> IResult<&[u8], Response<'_>> {
 // resp-cond-state = ("OK" / "NO" / "BAD") SP resp-text
 //                     ; Status condition
 fn resp_cond(i: &[u8]) -> IResult<&[u8], Response<'_>> {
-    map((status, trailing_resp_text), |(status, outcome)| {
+    map((Status::parse, trailing_resp_text), |(status, outcome)| {
         Response::Data { status, outcome }
     })
     .parse(i)
@@ -1248,7 +1261,7 @@ pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
         tag("* "),
         alt((
             resp_cond,
-            map(mailbox_data, Response::MailboxData),
+            map(MailboxDatum::parse, Response::MailboxData),
             map(message_data_expunge, Response::Expunge),
             message_data_fetch,
             map(capability_data, Response::Capabilities),
@@ -1317,13 +1330,13 @@ mod tests {
 
     #[test]
     fn test_addresses() {
-        match super::address(b"(\"John Klensin\" NIL \"KLENSIN\" \"MIT.EDU\") ") {
+        match super::Address::parse(b"(\"John Klensin\" NIL \"KLENSIN\" \"MIT.EDU\") ") {
             Ok((_, _address)) => {}
             rsp => panic!("unexpected response {rsp:?}"),
         }
 
         // Literal non-UTF8 address
-        match super::address(b"({12}\r\nJoh\xff Klensin NIL \"KLENSIN\" \"MIT.EDU\") ") {
+        match super::Address::parse(b"({12}\r\nJoh\xff Klensin NIL \"KLENSIN\" \"MIT.EDU\") ") {
             Ok((_, _address)) => {}
             rsp => panic!("unexpected response {rsp:?}"),
         }
