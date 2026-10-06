@@ -7,7 +7,6 @@ use nom::{
     sequence::{delimited, preceded},
     IResult, Parser,
 };
-use std::borrow::Cow;
 
 use crate::core::*;
 use crate::rfc3501::AttributeValue;
@@ -90,7 +89,7 @@ pub fn msg_att_body_section(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
         |(_, section, index, _, data)| AttributeValue::BodySection {
             section,
             index,
-            data: data.map(Cow::Borrowed),
+            data,
         },
     )
     .parse(i)

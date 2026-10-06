@@ -62,13 +62,19 @@ pub fn sequence_set(i: &[u8]) -> IResult<&[u8], Vec<std::ops::RangeInclusive<u32
 // ----- string -----
 
 // string = quoted / literal
-pub fn string(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    alt((quoted, literal)).parse(i)
+pub fn string(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
+    alt((quoted, map(literal, Cow::Borrowed))).parse(i)
 }
 
 #[inline]
-fn lossy_str(bytes: &[u8]) -> Cow<'_, str> {
-    String::from_utf8_lossy(bytes)
+fn lossy_str<'a>(bytes: impl Into<Cow<'a, [u8]>>) -> Cow<'a, str> {
+    match bytes.into() {
+        Cow::Borrowed(bytes) => String::from_utf8_lossy(bytes),
+        Cow::Owned(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => Cow::Owned(text),
+            Err(error) => Cow::Owned(String::from_utf8_lossy(error.as_bytes()).into_owned()),
+        },
+    }
 }
 
 // string bytes as utf8 — falls back to lossy decoding when the literal
@@ -80,19 +86,22 @@ pub fn string_utf8(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
 }
 
 // quoted = DQUOTE *QUOTED-CHAR DQUOTE
-pub fn quoted(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    delimited(
-        char('"'),
-        alt((
-            // nom 8's `escaped` rejects empty input, so match an empty quoted string separately.
-            map(peek(char('"')), |_| &b""[..]),
-            escaped(
-                take_while1(|byte| is_text_char(byte) && !is_quoted_specials(byte)),
-                '\\',
-                one_of("\\\""),
-            ),
-        )),
-        char('"'),
+pub fn quoted(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
+    map(
+        delimited(
+            char('"'),
+            alt((
+                // nom 8's `escaped` rejects empty input, so match an empty quoted string separately.
+                map(peek(char('"')), |_| &b""[..]),
+                escaped(
+                    take_while1(|byte| is_text_char(byte) && !is_quoted_specials(byte)),
+                    '\\',
+                    one_of("\\\""),
+                ),
+            )),
+            char('"'),
+        ),
+        Cow::Borrowed,
     )
     .parse(i)
 }
@@ -122,8 +131,8 @@ pub fn literal(input: &[u8]) -> IResult<&[u8], &[u8]> {
 // ----- astring ----- atom (roughly) or string
 
 // astring = 1*ASTRING-CHAR / string
-pub fn astring(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    alt((take_while1(is_astring_char), string)).parse(i)
+pub fn astring(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
+    alt((map(take_while1(is_astring_char), Cow::Borrowed), string)).parse(i)
 }
 
 // astring bytes as utf8 — lossy, see comment on string_utf8.
@@ -166,7 +175,7 @@ pub fn atom(i: &[u8]) -> IResult<&[u8], &str> {
 // ----- nstring ----- nil or string
 
 // nstring = string / nil
-pub fn nstring(i: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
+pub fn nstring(i: &[u8]) -> IResult<&[u8], Option<Cow<'_, [u8]>>> {
     alt((map(nil, |_| None), map(string, Some))).parse(i)
 }
 
@@ -278,16 +287,16 @@ mod tests {
     fn test_quoted() {
         let (rem, val) = quoted(br#""Hello"???"#).unwrap();
         assert_eq!(rem, b"???");
-        assert_eq!(val, b"Hello");
+        assert_eq!(val, &b"Hello"[..]);
 
         // Allowed escapes...
         assert_eq!(
             quoted(br#""Hello \" "???"#),
-            Ok((&b"???"[..], &br#"Hello \" "#[..]))
+            Ok((&b"???"[..], Cow::Borrowed(&br#"Hello \" "#[..])))
         );
         assert_eq!(
             quoted(br#""Hello \\ "???"#),
-            Ok((&b"???"[..], &br#"Hello \\ "#[..]))
+            Ok((&b"???"[..], Cow::Borrowed(&br#"Hello \\ "#[..])))
         );
 
         // Not allowed escapes...
@@ -298,7 +307,7 @@ mod tests {
         let (rem, val) = quoted(br#""Hello \"World\""???"#).unwrap();
         assert_eq!(rem, br#"???"#);
         // Should it be this (Hello \"World\") ...
-        assert_eq!(val, br#"Hello \"World\""#);
+        assert_eq!(val, &br#"Hello \"World\""#[..]);
         // ... or this (Hello "World")?
         //assert_eq!(val, br#"Hello "World""#); // fails
 
@@ -315,7 +324,7 @@ mod tests {
     fn test_string_literal() {
         match string(b"{3}\r\nXYZ") {
             Ok((_, value)) => {
-                assert_eq!(value, b"XYZ");
+                assert_eq!(value, &b"XYZ"[..]);
             }
             rsp => panic!("unexpected response {rsp:?}"),
         }
@@ -325,7 +334,7 @@ mod tests {
     fn test_string_literal_containing_null() {
         match string(b"{5}\r\nX\0Y\0Z") {
             Ok((_, value)) => {
-                assert_eq!(value, b"X\0Y\0Z");
+                assert_eq!(value, &b"X\0Y\0Z"[..]);
             }
             rsp => panic!("unexpected response {rsp:?}"),
         }
@@ -335,7 +344,7 @@ mod tests {
     fn test_astring() {
         match astring(b"text ") {
             Ok((_, value)) => {
-                assert_eq!(value, b"text");
+                assert_eq!(value, &b"text"[..]);
             }
             rsp => panic!("unexpected response {rsp:?}"),
         }

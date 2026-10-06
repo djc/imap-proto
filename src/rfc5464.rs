@@ -116,9 +116,9 @@ fn check_entry_name(i: &[u8]) -> IResult<&[u8], &[u8]> {
     }
 }
 
-fn entry_name(i: &[u8]) -> IResult<&[u8], &[u8]> {
+fn entry_name(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
     let astring_res = astring(i)?;
-    check_entry_name(astring_res.1)?;
+    check_entry_name(&astring_res.1).map_err(|e| e.map_input(|_| i))?;
     Ok(astring_res)
 }
 
@@ -126,13 +126,20 @@ fn slice_to_str(i: &[u8]) -> &str {
     std::str::from_utf8(i).unwrap()
 }
 
+fn cow_to_str(i: Cow<'_, [u8]>) -> Cow<'_, str> {
+    match i {
+        Cow::Borrowed(i) => Cow::Borrowed(slice_to_str(i)),
+        Cow::Owned(i) => Cow::Owned(String::from_utf8(i).unwrap()),
+    }
+}
+
 fn nil_value(i: &[u8]) -> IResult<&[u8], Option<String>> {
     map(tag_no_case("NIL"), |_| None).parse(i)
 }
 
 fn string_value(i: &[u8]) -> IResult<&[u8], Option<String>> {
-    map(alt((quoted, literal)), |s| {
-        Some(slice_to_str(s).to_string())
+    map(alt((quoted, map(literal, Cow::Borrowed))), |s| {
+        Some(slice_to_str(&s).to_string())
     })
     .parse(i)
 }
@@ -146,7 +153,7 @@ pub struct Metadata {
 fn keyval_list(i: &[u8]) -> IResult<&[u8], Vec<Metadata>> {
     parenthesized_nonempty_list(map(
         (
-            map(entry_name, slice_to_str),
+            map(entry_name, cow_to_str),
             tag(" "),
             alt((nil_value, string_value)),
         ),
@@ -159,10 +166,10 @@ fn keyval_list(i: &[u8]) -> IResult<&[u8], Vec<Metadata>> {
 }
 
 fn entry_list(i: &[u8]) -> IResult<&[u8], Vec<Cow<'_, str>>> {
-    separated_list0(tag(" "), map(map(entry_name, slice_to_str), Cow::Borrowed)).parse(i)
+    separated_list0(tag(" "), map(entry_name, cow_to_str)).parse(i)
 }
 
-fn metadata_common(i: &[u8]) -> IResult<&[u8], &[u8]> {
+fn metadata_common(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
     let (i, (_, mbox, _)) = (tag_no_case("METADATA "), quoted, tag(" ")).parse(i)?;
     Ok((i, mbox))
 }
@@ -173,7 +180,7 @@ pub(crate) fn metadata_solicited(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     Ok((
         i,
         Response::MailboxData(MailboxDatum::MetadataSolicited {
-            mailbox: Cow::Borrowed(slice_to_str(mailbox)),
+            mailbox: cow_to_str(mailbox),
             values,
         }),
     ))
@@ -185,7 +192,7 @@ pub(crate) fn metadata_unsolicited(i: &[u8]) -> IResult<&[u8], Response<'_>> {
     Ok((
         i,
         Response::MailboxData(MailboxDatum::MetadataUnsolicited {
-            mailbox: Cow::Borrowed(slice_to_str(mailbox)),
+            mailbox: cow_to_str(mailbox),
             values,
         }),
     ))
