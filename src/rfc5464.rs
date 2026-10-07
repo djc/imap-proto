@@ -332,6 +332,20 @@ mod tests {
     }
 
     #[test]
+    fn test_quoted_escapes_success() {
+        match Response::parse(
+            b"* METADATA \"Say \\\"Hi\\\" \\\\ Bye\" (/shared/comment \"Say \\\"Bye\\\" \\\\ Hi\")\r\n",
+        ) {
+            Ok((_, Response::MailboxData(MailboxDatum::MetadataSolicited { mailbox, values }))) => {
+                assert_eq!(mailbox, "Say \"Hi\" \\ Bye");
+                assert_eq!(values.len(), 1);
+                assert_eq!(values[0].value.as_deref(), Some("Say \"Bye\" \\ Hi"));
+            }
+            rsp => panic!("unexpected response {rsp:?}"),
+        }
+    }
+
+    #[test]
     fn test_nil_success() {
         match metadata_solicited(b"METADATA \"\" (/shared/comment NIL /shared/admin NIL)\r\n") {
             Ok((i, Response::MailboxData(MailboxDatum::MetadataSolicited { mailbox, values }))) => {

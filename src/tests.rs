@@ -56,6 +56,21 @@ fn test_name_attributes() {
     }
 }
 
+#[test]
+fn test_list_name_quoted_or_literal() {
+    for response in [
+        &b"* LIST () \".\" \"INBOX.Say \\\"Hi\\\" \\\\ Bye\"\r\n"[..],
+        b"* LIST () \".\" {20}\r\nINBOX.Say \"Hi\" \\ Bye\r\n",
+    ] {
+        match Response::parse(response) {
+            Ok((_, Response::MailboxData(MailboxDatum::List(MailboxListData { name, .. })))) => {
+                assert_eq!(name, "INBOX.Say \"Hi\" \\ Bye");
+            }
+            rsp => panic!("unexpected response {rsp:?}"),
+        }
+    }
+}
+
 /// Test the ACL response from RFC 4314/2086
 #[test]
 fn test_acl_response() {
@@ -625,6 +640,37 @@ fn test_header_fields() {
 
     match Response::parse(RESPONSE) {
         Ok((_, Response::Fetch(_, _))) => {}
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_envelope_subject_with_escapes() {
+    match Response::parse(
+        b"* 1 FETCH (ENVELOPE (NIL \"Say \\\"Hi\\\" \\\\ Bye\" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n",
+    ) {
+        Ok((_, Response::Fetch(1, attrs))) => match &attrs[0] {
+            AttributeValue::Envelope(envelope) => {
+                assert_eq!(envelope.subject.as_deref(), Some(&b"Say \"Hi\" \\ Bye"[..]));
+            }
+            other => panic!("expected Envelope, got {other:?}"),
+        },
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_envelope_subject_without_escapes() {
+    match Response::parse(b"* 1 FETCH (ENVELOPE (NIL \"Hi\" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n")
+    {
+        Ok((_, Response::Fetch(1, attrs))) => match &attrs[0] {
+            AttributeValue::Envelope(envelope) => assert!(
+                matches!(envelope.subject, Some(Cow::Borrowed(b"Hi"))),
+                "subject = {:?}",
+                envelope.subject
+            ),
+            other => panic!("expected Envelope, got {other:?}"),
+        },
         rsp => panic!("unexpected response {rsp:?}"),
     }
 }
