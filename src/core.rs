@@ -87,7 +87,7 @@ pub fn string_utf8(i: &[u8]) -> IResult<&[u8], Cow<'_, str>> {
 
 // quoted = DQUOTE *QUOTED-CHAR DQUOTE
 pub fn quoted(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
-    map(
+    map_res(
         delimited(
             char('"'),
             alt((
@@ -101,9 +101,35 @@ pub fn quoted(i: &[u8]) -> IResult<&[u8], Cow<'_, [u8]>> {
             )),
             char('"'),
         ),
-        Cow::Borrowed,
+        unescape,
     )
     .parse(i)
+}
+
+// QUOTED-CHAR = <any TEXT-CHAR except quoted-specials> / "\" quoted-specials
+fn unescape(bytes: &[u8]) -> Result<Cow<'_, [u8]>, ()> {
+    if !bytes.contains(&b'\\') {
+        return Ok(Cow::Borrowed(bytes));
+    }
+
+    let mut unescaped = Vec::with_capacity(bytes.len());
+    let mut escaping = false;
+    for &byte in bytes {
+        match (escaping, byte) {
+            (false, b'\\') => escaping = true,
+            (false, _) => unescaped.push(byte),
+            (true, b'\\' | b'"') => {
+                unescaped.push(byte);
+                escaping = false;
+            }
+            (true, _) => return Err(()),
+        }
+    }
+
+    if escaping {
+        return Err(());
+    }
+    Ok(Cow::Owned(unescaped))
 }
 
 // quoted bytes as utf8 — lossy, see comment on string_utf8.
@@ -288,15 +314,28 @@ mod tests {
         let (rem, val) = quoted(br#""Hello"???"#).unwrap();
         assert_eq!(rem, b"???");
         assert_eq!(val, &b"Hello"[..]);
+        assert_matches!(val, Cow::Borrowed(_));
+
+        let (rem, val) = quoted(br#"""???"#).unwrap();
+        assert_eq!(rem, b"???");
+        assert_matches!(val, Cow::Borrowed(b""));
 
         // Allowed escapes...
         assert_eq!(
             quoted(br#""Hello \" "???"#),
-            Ok((&b"???"[..], Cow::Borrowed(&br#"Hello \" "#[..])))
+            Ok((&b"???"[..], Cow::Owned(br#"Hello " "#.to_vec())))
         );
         assert_eq!(
             quoted(br#""Hello \\ "???"#),
-            Ok((&b"???"[..], Cow::Borrowed(&br#"Hello \\ "#[..])))
+            Ok((&b"???"[..], Cow::Owned(br#"Hello \ "#.to_vec())))
+        );
+        assert_eq!(
+            quoted(br#""a\\"???"#),
+            Ok((&b"???"[..], Cow::Owned(br#"a\"#.to_vec())))
+        );
+        assert_eq!(
+            quoted(br#""\\\"\\"???"#),
+            Ok((&b"???"[..], Cow::Owned(br#"\"\"#.to_vec())))
         );
 
         // Not allowed escapes...
@@ -306,10 +345,7 @@ mod tests {
 
         let (rem, val) = quoted(br#""Hello \"World\""???"#).unwrap();
         assert_eq!(rem, br#"???"#);
-        // Should it be this (Hello \"World\") ...
-        assert_eq!(val, &br#"Hello \"World\""#[..]);
-        // ... or this (Hello "World")?
-        //assert_eq!(val, br#"Hello "World""#); // fails
+        assert_eq!(val, &br#"Hello "World""#[..]);
 
         // Test Incomplete
         assert_matches!(quoted(br#""#), Err(nom::Err::Incomplete(_)));
@@ -318,6 +354,25 @@ mod tests {
 
         // Test Error
         assert_matches!(quoted(br"\"), Err(nom::Err::Error(_)));
+    }
+
+    #[test]
+    fn test_quoted_with_escape_and_non_utf8_byte() {
+        let input = b"\"caf\xe9 \\\"\"???";
+        assert_eq!(
+            quoted(input),
+            Ok((&b"???"[..], Cow::Owned(b"caf\xe9 \"".to_vec())))
+        );
+        assert_eq!(
+            quoted_utf8(input),
+            Ok((&b"???"[..], Cow::Owned("caf\u{FFFD} \"".to_owned())))
+        );
+    }
+
+    #[test]
+    fn test_unescape_rejects_invalid_escapes() {
+        assert_eq!(unescape(br"\a"), Err(()));
+        assert_eq!(unescape(br"a\"), Err(()));
     }
 
     #[test]
