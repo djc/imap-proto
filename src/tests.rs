@@ -889,6 +889,333 @@ fn test_enabled() {
 }
 
 #[test]
+fn test_enabled_uidonly() {
+    assert_eq!(
+        Response::parse(b"* ENABLED UIDONLY\r\n"),
+        Ok((
+            &b""[..],
+            Response::Capabilities(vec![Capability::Atom(Cow::Borrowed("UIDONLY"))])
+        ))
+    );
+}
+
+#[test]
+fn test_enabled_uidonly_opt_in() {
+    assert_eq!(
+        Response::parse_with_enabled(b"* ENABLED UIDONLY\r\n"),
+        Ok((
+            &b""[..],
+            Response::Enabled(vec![Capability::Atom(Cow::Borrowed("UIDONLY"))])
+        ))
+    );
+}
+
+#[test]
+fn test_capability_uidonly_opt_in() {
+    assert_eq!(
+        Response::parse_with_enabled(b"* CAPABILITY IMAP4rev1 UIDONLY\r\n"),
+        Ok((
+            &b""[..],
+            Response::Capabilities(vec![
+                Capability::Imap4rev1,
+                Capability::Atom(Cow::Borrowed("UIDONLY")),
+            ])
+        ))
+    );
+}
+
+#[test]
+fn test_uidfetch_metadata_without_redundant_uid() {
+    match Response::parse(
+        b"* 25996 UIDFETCH (FLAGS (\\Seen) RFC822.SIZE 321 INTERNALDATE \"01-Jan-2026 00:00:00 +0000\")\r\n",
+    ) {
+        Ok((_, Response::UidFetch(25996, attrs))) => {
+            assert!(matches!(attrs[0], AttributeValue::Flags(_)));
+            assert!(matches!(attrs[1], AttributeValue::Rfc822Size(321)));
+            assert!(matches!(attrs[2], AttributeValue::InternalDate(_)));
+            assert!(!attrs
+                .iter()
+                .any(|attr| matches!(attr, AttributeValue::Uid(_))));
+        }
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_uidfetch_with_redundant_uid() {
+    match Response::parse(b"* 25900 UIDFETCH (FLAGS () UID 25900)\r\n") {
+        Ok((_, Response::UidFetch(25900, attrs))) => {
+            assert!(matches!(attrs[0], AttributeValue::Flags(_)));
+            assert!(matches!(attrs[1], AttributeValue::Uid(25900)));
+        }
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_uidfetch_body_literal() {
+    match Response::parse(b"* 42 UIDFETCH (UID 42 BODY[] {5}\r\nhello)\r\n") {
+        Ok((_, Response::UidFetch(42, attrs))) => {
+            assert!(matches!(attrs[0], AttributeValue::Uid(42)));
+            assert!(matches!(
+                &attrs[1],
+                AttributeValue::BodySection {
+                    data: Some(body),
+                    ..
+                } if body.as_ref() == b"hello"
+            ));
+        }
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_malformed_uidfetch() {
+    assert!(Response::parse(b"* UIDFETCH (FLAGS ())\r\n").is_err());
+    assert!(Response::parse(b"* 42 UIDFETCH FLAGS ()\r\n").is_err());
+    assert!(matches!(
+        Response::parse(b"* 42 UIDFETCH (FLAGS "),
+        Err(nom::Err::Incomplete(_))
+    ));
+}
+
+#[test]
+fn test_uidfetch_rejects_zero_uid() {
+    assert!(Response::parse(b"* 0 UIDFETCH (FLAGS ())\r\n").is_err());
+}
+
+#[test]
+fn test_uidfetch_accepts_uid_boundaries() {
+    for (response, expected_uid) in [
+        (&b"* 1 UIDFETCH (FLAGS ())\r\n"[..], 1),
+        (&b"* 4294967295 UIDFETCH (FLAGS ())\r\n"[..], u32::MAX),
+    ] {
+        match Response::parse(response) {
+            Ok((_, Response::UidFetch(uid, _))) => assert_eq!(uid, expected_uid),
+            rsp => panic!("Unexpected response: {rsp:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_uidonly_and_message_limit_response_codes() {
+    match Response::parse(b"A1 BAD [UIDREQUIRED] use UIDs\r\n") {
+        Ok((
+            _,
+            Response::Done {
+                outcome:
+                    Outcome {
+                        code: Some(ResponseCode::UidRequired),
+                        ..
+                    },
+                ..
+            },
+        )) => {}
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+
+    match Response::parse(b"A2 OK [MESSAGELIMIT 1000 23221] partial\r\n") {
+        Ok((
+            _,
+            Response::Done {
+                outcome:
+                    Outcome {
+                        code:
+                            Some(ResponseCode::MessageLimit {
+                                limit: 1000,
+                                last_uid: Some(23221),
+                            }),
+                        ..
+                    },
+                ..
+            },
+        )) => {}
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+
+    match Response::parse(b"A3 NO [MESSAGELIMIT 1000] too many\r\n") {
+        Ok((
+            _,
+            Response::Done {
+                outcome:
+                    Outcome {
+                        code:
+                            Some(ResponseCode::MessageLimit {
+                                limit: 1000,
+                                last_uid: None,
+                            }),
+                        ..
+                    },
+                ..
+            },
+        )) => {}
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_untagged_message_limit_response_code() {
+    match Response::parse(b"* NO [MESSAGELIMIT 1000 23221] partial\r\n") {
+        Ok((
+            _,
+            Response::Data {
+                status: Status::No,
+                outcome:
+                    Outcome {
+                        code: Some(ResponseCode::MessageLimit { limit, last_uid }),
+                        ..
+                    },
+                ..
+            },
+        )) => {
+            assert_eq!(limit, 1000);
+            assert_eq!(last_uid, Some(23221));
+        }
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_message_limit_rejects_zero_values() {
+    for response in [
+        &b"A1 OK [MESSAGELIMIT 0] invalid\r\n"[..],
+        &b"A2 OK [MESSAGELIMIT 1000 0] invalid\r\n"[..],
+    ] {
+        assert!(!matches!(
+            Response::parse(response),
+            Ok((
+                _,
+                Response::Done {
+                    outcome: Outcome {
+                        code: Some(ResponseCode::MessageLimit { .. }),
+                        ..
+                    },
+                    ..
+                }
+            ))
+        ));
+    }
+}
+
+#[test]
+fn test_message_limit_accepts_nonzero_boundaries() {
+    for (response, expected_limit, expected_last_uid) in [
+        (&b"A1 OK [MESSAGELIMIT 1 1] partial\r\n"[..], 1, 1),
+        (
+            &b"A2 OK [MESSAGELIMIT 4294967295 4294967295] partial\r\n"[..],
+            u32::MAX,
+            u32::MAX,
+        ),
+    ] {
+        match Response::parse(response) {
+            Ok((
+                _,
+                Response::Done {
+                    outcome:
+                        Outcome {
+                            code: Some(ResponseCode::MessageLimit { limit, last_uid }),
+                            ..
+                        },
+                    ..
+                },
+            )) => {
+                assert_eq!(limit, expected_limit);
+                assert_eq!(last_uid, Some(expected_last_uid));
+            }
+            rsp => panic!("Unexpected response: {rsp:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_parse_with_enabled_other_responses() {
+    for response in [
+        &b"+ continue\r\n"[..],
+        &b"* 42 FETCH (UID 25996 FLAGS ())\r\n"[..],
+        &b"* 25996 UIDFETCH (FLAGS ())\r\n"[..],
+        &b"A1 BAD [UIDREQUIRED] use UIDs\r\n"[..],
+        &b"A2 OK [MESSAGELIMIT 1000 23221] partial\r\n"[..],
+        &b"* NO [MESSAGELIMIT 1000] too many\r\n"[..],
+    ] {
+        let parsed = Response::parse(response).expect("valid response");
+        assert!(parsed.0.is_empty());
+        assert_eq!(Response::parse_with_enabled(response), Ok(parsed));
+    }
+
+    assert_eq!(
+        Response::parse_with_enabled(b"* ENABLED\r\n"),
+        Ok((&b""[..], Response::Enabled(vec![])))
+    );
+}
+
+#[test]
+fn test_uidonly_responses_into_owned() {
+    for response in [
+        &b"* ENABLED UIDONLY QRESYNC\r\n"[..],
+        &b"* 42 UIDFETCH (UID 42 BODY[] {5}\r\nhello)\r\n"[..],
+        &b"A1 BAD [UIDREQUIRED] use UIDs\r\n"[..],
+        &b"A2 OK [MESSAGELIMIT 1000 23221] partial\r\n"[..],
+        &b"* NO [MESSAGELIMIT 1000] too many\r\n"[..],
+    ] {
+        let owned: Response<'static> = {
+            let input = response.to_vec();
+            let (remaining, parsed) = Response::parse_with_enabled(&input).expect("valid response");
+            assert!(remaining.is_empty());
+            parsed.into_owned()
+        };
+
+        let (_, expected) = Response::parse_with_enabled(response).expect("valid response");
+        assert_eq!(owned, expected);
+    }
+}
+
+#[test]
+fn test_uidfetch_streaming_and_case() {
+    let response = b"* 42 uidfetch (UID 42 BODY[] {5}\r\nhello)\r\n";
+    assert!(matches!(
+        Response::parse(&response[..response.len() - 4]),
+        Err(nom::Err::Incomplete(_))
+    ));
+
+    match Response::parse(response) {
+        Ok(([], Response::UidFetch(42, attrs))) => {
+            assert!(matches!(
+                &attrs[1],
+                AttributeValue::BodySection {
+                    data: Some(body),
+                    ..
+                } if body.as_ref() == b"hello"
+            ));
+        }
+        rsp => panic!("Unexpected response: {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_uidonly_numeric_overflow() {
+    assert!(Response::parse(b"* 4294967296 UIDFETCH (FLAGS ())\r\n").is_err());
+
+    for response in [
+        &b"A1 OK [MESSAGELIMIT 4294967296] invalid\r\n"[..],
+        &b"A2 OK [MESSAGELIMIT 1000 4294967296] invalid\r\n"[..],
+    ] {
+        assert!(!matches!(
+            Response::parse(response),
+            Ok((
+                _,
+                Response::Done {
+                    outcome: Outcome {
+                        code: Some(ResponseCode::MessageLimit { .. }),
+                        ..
+                    },
+                    ..
+                }
+            ))
+        ));
+    }
+}
+
+#[test]
 fn test_flags() {
     // Invalid response (FLAGS can't include \*) from Zoho Mail server.
     //
