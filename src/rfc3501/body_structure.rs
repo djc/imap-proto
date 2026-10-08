@@ -959,6 +959,22 @@ mod tests {
                 assert_eq!(list, vec![BodyExtension::Num(1337)]);
             }
         );
+
+        // Several space-separated items, a nested list in a later position, and
+        // the tolerated extra whitespace before a closing parenthesis.
+        assert_matches!(
+            BodyExtension::parse(br#"(1 "two" (3 NIL) )"#),
+            Ok((EMPTY, BodyExtension::List(list))) => {
+                assert_eq!(list, vec![
+                    BodyExtension::Num(1),
+                    BodyExtension::Str(Some(Cow::Borrowed("two"))),
+                    BodyExtension::List(vec![
+                        BodyExtension::Num(3),
+                        BodyExtension::Str(None),
+                    ]),
+                ]);
+            }
+        );
     }
 
     #[test]
@@ -1104,6 +1120,42 @@ mod tests {
         assert_matches!(
             BodyStructure::parse(body_str.as_bytes()),
             Ok((EMPTY, BodyStructure::Basic { .. }))
+        );
+    }
+
+    // A part whose contents parse but whose closing ")" is missing fails cleanly.
+    #[test]
+    fn test_body_structure_unclosed_part_is_error() {
+        let body_str = format!(r#"("TEXT" "PLAIN" {BODY_FIELDS} 42#"#);
+        assert_matches!(
+            BodyStructure::parse(body_str.as_bytes()),
+            Err(nom::Err::Error(_))
+        );
+    }
+
+    // A message/rfc822 part whose embedded body parses but whose line count is
+    // missing backtracks to the basic form, which cannot absorb the embedded
+    // body either: a clean error, not a misparse.
+    #[test]
+    fn test_body_structure_message_without_lines_is_error() {
+        const ENVELOPE: &str = "(NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL)";
+        let (text, _) = mock_body_text();
+        let body_str = format!(r#"("MESSAGE" "RFC822" {BODY_FIELDS} {ENVELOPE} {text})"#);
+        assert_matches!(
+            BodyStructure::parse(body_str.as_bytes()),
+            Err(nom::Err::Error(_))
+        );
+    }
+
+    // A message/rfc822 head followed by something that is not a body part
+    // backtracks the same way.
+    #[test]
+    fn test_body_structure_message_with_nil_body_is_error() {
+        const ENVELOPE: &str = "(NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL)";
+        let body_str = format!(r#"("MESSAGE" "RFC822" {BODY_FIELDS} {ENVELOPE} NIL 42)"#);
+        assert_matches!(
+            BodyStructure::parse(body_str.as_bytes()),
+            Err(nom::Err::Error(_))
         );
     }
 
