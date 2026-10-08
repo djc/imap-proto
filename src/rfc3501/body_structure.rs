@@ -21,7 +21,36 @@ use crate::{
 /// types are recursive and so are their drop glue, `Debug`, `PartialEq` and
 /// `into_owned`, as well as any code that walks them. Real messages nest a
 /// handful of levels; this leaves ample headroom and still bounds all of that.
-const MAX_NESTING_DEPTH: usize = 64;
+///
+/// Defaults to 64. Can be overridden at build time with the
+/// `IMAP_PROTO_MAX_NESTING_DEPTH` environment variable. The stack needed to
+/// drop or walk a parsed body structure grows with its nesting, so a much
+/// larger limit brings back the problem the limit exists to prevent.
+const MAX_NESTING_DEPTH: usize = match option_env!("IMAP_PROTO_MAX_NESTING_DEPTH") {
+    Some(value) => parse_depth(value),
+    None => 64,
+};
+
+// Hand-rolled digit loop: `str::parse` cannot run in const contexts, and const
+// `usize::from_str_radix` needs Rust 1.82 while the MSRV is 1.70.
+const fn parse_depth(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut result = 0usize;
+    let mut idx = 0;
+    while idx < bytes.len() {
+        assert!(
+            bytes[idx].is_ascii_digit(),
+            "IMAP_PROTO_MAX_NESTING_DEPTH must be a positive integer"
+        );
+        result = result * 10 + (bytes[idx] - b'0') as usize;
+        idx += 1;
+    }
+    assert!(
+        result > 0,
+        "IMAP_PROTO_MAX_NESTING_DEPTH must be a positive integer"
+    );
+    result
+}
 
 fn too_deep<T>(i: &[u8]) -> Result<T, NomErr<'_>> {
     Err(nom::Err::Failure(Error::new(i, ErrorKind::TooLarge)))
