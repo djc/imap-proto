@@ -1042,7 +1042,7 @@ fn test_imap_body_structure() {
 #[test]
 fn test_body_struct_parser_part_numbers() {
     let input = br#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 1 1)(("TEXT" "HTML" NIL NIL NIL "7BIT" 1 1)("IMAGE" "PNG" NIL NIL NIL "BASE64" 1)("IMAGE" "GIF" NIL NIL NIL "BASE64" 1) "RELATED")("APPLICATION" "PDF" NIL NIL NIL "BASE64" 1)("AUDIO" "MPEG" NIL NIL NIL "BASE64" 1) "MIXED")"#;
-    let (_, body) = BodyStructure::parse(input).unwrap();
+    let (_, body) = BodyStructure::parse(input, BodyStructure::MAX_DEPTH).unwrap();
     let parser = BodyStructParser::new(&body);
 
     for (subtype, path) in [
