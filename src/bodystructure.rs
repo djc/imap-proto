@@ -15,12 +15,25 @@ impl<'a> BodyStructParser<'a> {
     ///
     /// * `root` - The root of the `BodyStructure response.
     pub fn new(root: &'a BodyStructure<'a>) -> Self {
-        let mut parser = BodyStructParser {
-            map: HashMap::new(),
-        };
+        let mut map = HashMap::new();
+        let mut stack = vec![(Vec::new(), root)];
+        while let Some((path, node)) = stack.pop() {
+            match node {
+                BodyStructure::Multipart { bodies, .. } => {
+                    for (i, body) in bodies.iter().enumerate() {
+                        let mut path = path.clone();
+                        path.push(i as u32 + 1);
+                        stack.push((path, body));
+                    }
+                }
+                BodyStructure::Basic { .. }
+                | BodyStructure::Text { .. }
+                | BodyStructure::Message { .. } => {}
+            }
+            map.insert(path, node);
+        }
 
-        parser.parse(Vec::new(), root);
-        parser
+        BodyStructParser { map }
     }
 
     /// Search particular element within the bodystructure.
@@ -42,22 +55,5 @@ impl<'a> BodyStructParser<'a> {
             })
             .collect();
         elem.first().map(|a| a.to_vec())
-    }
-
-    /// Reetr
-    fn parse(&mut self, path: Vec<u32>, node: &'a BodyStructure) {
-        match node {
-            BodyStructure::Multipart { bodies, .. } => {
-                for (i, body) in bodies.iter().enumerate() {
-                    let mut path = path.clone();
-                    path.push(i as u32 + 1);
-                    self.parse(path, body);
-                }
-            }
-            BodyStructure::Basic { .. }
-            | BodyStructure::Text { .. }
-            | BodyStructure::Message { .. } => {}
-        }
-        self.map.insert(path, node);
     }
 }
