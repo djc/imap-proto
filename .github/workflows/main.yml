@@ -53,6 +53,13 @@ jobs:
           toolchain: 1.70.0
       - run: cargo check --lib --all-features
 
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --manifest-path fuzz/Cargo.toml
+
   coverage:
     runs-on: ubuntu-latest
     environment: Coverage
