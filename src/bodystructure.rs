@@ -5,8 +5,6 @@ use crate::rfc3501::body_structure::BodyStructure;
 /// An utility parser helping to find the appropriate
 /// section part from a FETCH response.
 pub struct BodyStructParser<'a> {
-    root: &'a BodyStructure<'a>,
-    prefix: Vec<u32>,
     map: HashMap<Vec<u32>, &'a BodyStructure<'a>>,
 }
 
@@ -18,12 +16,10 @@ impl<'a> BodyStructParser<'a> {
     /// * `root` - The root of the `BodyStructure response.
     pub fn new(root: &'a BodyStructure<'a>) -> Self {
         let mut parser = BodyStructParser {
-            root,
-            prefix: vec![],
             map: HashMap::new(),
         };
 
-        parser.parse(parser.root);
+        parser.parse(Vec::new(), root);
         parser
     }
 
@@ -49,22 +45,19 @@ impl<'a> BodyStructParser<'a> {
     }
 
     /// Reetr
-    fn parse(&mut self, node: &'a BodyStructure) {
+    fn parse(&mut self, path: Vec<u32>, node: &'a BodyStructure) {
         match node {
             BodyStructure::Multipart { bodies, .. } => {
-                let vec = self.prefix.clone();
-                self.map.insert(vec, node);
-
-                for (i, n) in bodies.iter().enumerate() {
-                    self.prefix.push(i as u32 + 1);
-                    self.parse(n);
-                    self.prefix.pop();
+                for (i, body) in bodies.iter().enumerate() {
+                    let mut path = path.clone();
+                    path.push(i as u32 + 1);
+                    self.parse(path, body);
                 }
             }
-            _ => {
-                let vec = self.prefix.clone();
-                self.map.insert(vec, node);
-            }
-        };
+            BodyStructure::Basic { .. }
+            | BodyStructure::Text { .. }
+            | BodyStructure::Message { .. } => {}
+        }
+        self.map.insert(path, node);
     }
 }
