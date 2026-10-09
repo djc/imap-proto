@@ -5,9 +5,6 @@ use crate::rfc3501::body_structure::BodyStructure;
 /// An utility parser helping to find the appropriate
 /// section part from a FETCH response.
 pub struct BodyStructParser<'a> {
-    root: &'a BodyStructure<'a>,
-    prefix: Vec<u32>,
-    iter: u32,
     map: HashMap<Vec<u32>, &'a BodyStructure<'a>>,
 }
 
@@ -18,15 +15,25 @@ impl<'a> BodyStructParser<'a> {
     ///
     /// * `root` - The root of the `BodyStructure response.
     pub fn new(root: &'a BodyStructure<'a>) -> Self {
-        let mut parser = BodyStructParser {
-            root,
-            prefix: vec![],
-            iter: 1,
-            map: HashMap::new(),
-        };
+        let mut map = HashMap::new();
+        let mut stack = vec![(Vec::new(), root)];
+        while let Some((path, node)) = stack.pop() {
+            match node {
+                BodyStructure::Multipart { bodies, .. } => {
+                    for (i, body) in bodies.iter().enumerate() {
+                        let mut path = path.clone();
+                        path.push(i as u32 + 1);
+                        stack.push((path, body));
+                    }
+                }
+                BodyStructure::Basic { .. }
+                | BodyStructure::Text { .. }
+                | BodyStructure::Message { .. } => {}
+            }
+            map.insert(path, node);
+        }
 
-        parser.parse(parser.root);
-        parser
+        BodyStructParser { map }
     }
 
     /// Search particular element within the bodystructure.
@@ -48,27 +55,5 @@ impl<'a> BodyStructParser<'a> {
             })
             .collect();
         elem.first().map(|a| a.to_vec())
-    }
-
-    /// Reetr
-    fn parse(&mut self, node: &'a BodyStructure) {
-        match node {
-            BodyStructure::Multipart { bodies, .. } => {
-                let vec = self.prefix.clone();
-                self.map.insert(vec, node);
-
-                for (i, n) in bodies.iter().enumerate() {
-                    self.iter += i as u32;
-                    self.prefix.push(self.iter);
-                    self.parse(n);
-                    self.prefix.pop();
-                }
-                self.iter = 1;
-            }
-            _ => {
-                let vec = self.prefix.clone();
-                self.map.insert(vec, node);
-            }
-        };
     }
 }

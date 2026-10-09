@@ -3,6 +3,7 @@ use nom::{
     bytes::streaming::{tag, tag_no_case},
     character::streaming::char,
     combinator::{map, opt},
+    error::{make_error, ErrorKind},
     multi::many1,
     sequence::{delimited, preceded},
     IResult, Parser,
@@ -86,7 +87,9 @@ impl<'a> BodyExt1Part<'a> {
             opt_opt(preceded(tag(" "), body_lang)),
             // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
             opt_opt(preceded(tag(" "), nstring_utf8)),
-            opt(preceded(tag(" "), BodyExtension::parse)),
+            opt(preceded(tag(" "), |i| {
+                BodyExtension::parse(i, BodyExtension::MAX_DEPTH)
+            })),
         )
             .parse(i)?;
         Ok((
@@ -134,7 +137,9 @@ impl<'a> BodyExtMPart<'a> {
             opt_opt(preceded(tag(" "), body_lang)),
             // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
             opt_opt(preceded(tag(" "), nstring_utf8)),
-            opt(preceded(tag(" "), BodyExtension::parse)),
+            opt(preceded(tag(" "), |i| {
+                BodyExtension::parse(i, BodyExtension::MAX_DEPTH)
+            })),
         )
             .parse(i)?;
         Ok((
@@ -240,14 +245,18 @@ pub enum BodyExtension<'a> {
 }
 
 impl<'a> BodyExtension<'a> {
-    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+    fn parse(i: &'a [u8], max_depth: usize) -> IResult<&'a [u8], Self> {
+        let Some(max_depth) = max_depth.checked_sub(1) else {
+            return Err(nom::Err::Failure(make_error(i, ErrorKind::TooLarge)));
+        };
+
         alt((
             map(number, BodyExtension::Num),
             // Cannot find documentation on character encoding for body extension values.
             // So far, assuming UTF-8 seems fine, please report if you run into issues here.
             map(nstring_utf8, BodyExtension::Str),
             map(
-                parenthesized_nonempty_list(BodyExtension::parse),
+                parenthesized_nonempty_list(move |i| BodyExtension::parse(i, max_depth)),
                 BodyExtension::List,
             ),
         ))
@@ -263,6 +272,8 @@ impl<'a> BodyExtension<'a> {
             }
         }
     }
+
+    const MAX_DEPTH: usize = 8;
 }
 
 fn body_disposition(i: &[u8]) -> IResult<&[u8], Option<ContentDisposition<'_>>> {
@@ -347,7 +358,7 @@ fn body_type_text(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     .parse(i)
 }
 
-fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
+fn body_type_message(i: &[u8], max_depth: usize) -> IResult<&[u8], BodyStructure<'_>> {
     map(
         (
             tag_no_case("\"MESSAGE\" \"RFC822\""),
@@ -356,7 +367,7 @@ fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
             tag(" "),
             Envelope::parse,
             tag(" "),
-            BodyStructure::parse,
+            move |i| BodyStructure::parse(i, max_depth),
             tag(" "),
             number,
             BodyExt1Part::parse,
@@ -388,10 +399,10 @@ fn body_type_message(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
     .parse(i)
 }
 
-fn body_type_multipart(i: &[u8]) -> IResult<&[u8], BodyStructure<'_>> {
+fn body_type_multipart(i: &[u8], max_depth: usize) -> IResult<&[u8], BodyStructure<'_>> {
     map(
         (
-            many1(BodyStructure::parse),
+            many1(move |i| BodyStructure::parse(i, max_depth)),
             tag(" "),
             string_utf8,
             BodyExtMPart::parse,
@@ -444,12 +455,16 @@ pub enum BodyStructure<'a> {
 }
 
 impl<'a> BodyStructure<'a> {
-    pub(crate) fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+    pub(crate) fn parse(i: &'a [u8], max_depth: usize) -> IResult<&'a [u8], Self> {
+        let Some(max_depth) = max_depth.checked_sub(1) else {
+            return Err(nom::Err::Failure(make_error(i, ErrorKind::TooLarge)));
+        };
+
         paren_delimited(alt((
             body_type_text,
-            body_type_message,
+            move |i| body_type_message(i, max_depth),
             body_type_basic,
-            body_type_multipart,
+            move |i| body_type_multipart(i, max_depth),
         )))
         .parse(i)
     }
@@ -502,6 +517,8 @@ impl<'a> BodyStructure<'a> {
             },
         }
     }
+
+    pub(crate) const MAX_DEPTH: usize = 20;
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -590,7 +607,9 @@ pub(crate) fn body_param_owned(v: BodyParams<'_>) -> BodyParams<'static> {
 
 pub(crate) fn msg_att_body_structure(i: &[u8]) -> IResult<&[u8], AttributeValue<'_>> {
     map(
-        (tag_no_case("BODYSTRUCTURE "), BodyStructure::parse),
+        (tag_no_case("BODYSTRUCTURE "), |i| {
+            BodyStructure::parse(i, BodyStructure::MAX_DEPTH)
+        }),
         |(_, body)| AttributeValue::BodyStructure(body),
     )
     .parse(i)
@@ -673,27 +692,57 @@ mod tests {
     #[test]
     fn test_body_extension_data() {
         assert_matches!(
-            BodyExtension::parse(br#""blah""#),
+            BodyExtension::parse(br#""blah""#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::Str(Some(Cow::Borrowed("blah")))))
         );
 
         assert_matches!(
-            BodyExtension::parse(br#"NIL"#),
+            BodyExtension::parse(br#"NIL"#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::Str(None)))
         );
 
         assert_matches!(
-            BodyExtension::parse(br#"("hello")"#),
+            BodyExtension::parse(br#"("hello")"#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::List(list))) => {
                 assert_eq!(list, vec![BodyExtension::Str(Some(Cow::Borrowed("hello")))]);
             }
         );
 
         assert_matches!(
-            BodyExtension::parse(br#"(1337)"#),
+            BodyExtension::parse(br#"(1337)"#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::List(list))) => {
                 assert_eq!(list, vec![BodyExtension::Num(1337)]);
             }
+        );
+    }
+
+    #[test]
+    fn test_body_extension_max_depth() {
+        assert_matches!(BodyExtension::parse(b"((1))", 3), Ok((EMPTY, _)));
+        assert_matches!(
+            BodyExtension::parse(b"((1))", 2),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
+        );
+    }
+
+    #[test]
+    fn test_body_structure_deeply_nested_extension() {
+        let depth = 10_000;
+        let body_str = format!(
+            r#"("TEXT" "PLAIN" {BODY_FIELDS} 42 NIL NIL NIL NIL {}1{})"#,
+            "(".repeat(depth),
+            ")".repeat(depth),
+        );
+
+        assert_matches!(
+            BodyStructure::parse(body_str.as_bytes(), BodyStructure::MAX_DEPTH),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
         );
     }
 
@@ -729,7 +778,7 @@ mod tests {
         const BODY: &[u8] = br#"(("text" "plain" ("CHARSET" "UTF-8") NIL NIL NIL 1694 51 NIL NIL NIL NIL)("text" "html" ("CHARSET" "UTF-8") NIL NIL "quoted-printable" 5750 77 NIL NIL NIL NIL) "alternative" ("BOUNDARY" "94eb2c1235681e93cc0568edba59") NIL NIL NIL)"#;
 
         assert_matches!(
-            BodyStructure::parse(BODY),
+            BodyStructure::parse(BODY, BodyStructure::MAX_DEPTH),
             Ok((EMPTY, BodyStructure::Multipart { bodies, .. })) => {
                 assert_eq!(bodies.len(), 2);
                 assert_matches!(
@@ -747,7 +796,7 @@ mod tests {
         let (body_str, body_struct) = mock_body_text();
 
         assert_matches!(
-            BodyStructure::parse(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes(), BodyStructure::MAX_DEPTH),
             Ok((_, text)) => {
                 assert_eq!(text, body_struct);
             }
@@ -760,7 +809,7 @@ mod tests {
         let (_, text_body_struct) = mock_body_text();
 
         assert_matches!(
-            BodyStructure::parse(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes(), BodyStructure::MAX_DEPTH),
             Ok((_, text)) => {
                 assert_eq!(text, text_body_struct)
             }
@@ -772,7 +821,7 @@ mod tests {
         const BODY: &[u8] = br#"("APPLICATION" "PDF" ("NAME" "pages.pdf") NIL NIL "BASE64" 38838 NIL ("attachment" ("FILENAME" "pages.pdf")) NIL NIL)"#;
 
         assert_matches!(
-            BodyStructure::parse(BODY),
+            BodyStructure::parse(BODY, BodyStructure::MAX_DEPTH),
             Ok((_, basic)) => {
                 assert_eq!(basic, BodyStructure::Basic {
                     common: BodyContentCommon {
@@ -809,7 +858,7 @@ mod tests {
             format!(r#"("MESSAGE" "RFC822" {BODY_FIELDS} {envelope_str} {text_body_str} 42)"#);
 
         assert_matches!(
-            BodyStructure::parse(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes(), BodyStructure::MAX_DEPTH),
             Ok((_, BodyStructure::Message { .. }))
         );
     }
@@ -822,7 +871,7 @@ mod tests {
             format!(r#"({text_body_str1}{text_body_str2} "ALTERNATIVE" NIL NIL NIL NIL)"#);
 
         assert_matches!(
-            BodyStructure::parse(body_str.as_bytes()),
+            BodyStructure::parse(body_str.as_bytes(), BodyStructure::MAX_DEPTH),
             Ok((_, multipart)) => {
                 assert_eq!(multipart, BodyStructure::Multipart {
                     common: BodyContentCommon {
@@ -842,6 +891,48 @@ mod tests {
                     extension: None
                 });
             }
+        );
+    }
+
+    #[test]
+    fn test_body_structure_max_depth() {
+        let (text_body_str, _) = mock_body_text();
+        let body_str = format!(r#"(({text_body_str} "MIXED") "MIXED")"#);
+
+        assert_matches!(BodyStructure::parse(body_str.as_bytes(), 3), Ok((EMPTY, _)));
+        assert_matches!(
+            BodyStructure::parse(body_str.as_bytes(), 2),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
+        );
+    }
+
+    #[test]
+    fn test_body_structure_deeply_nested_multipart() {
+        let input = format!("BODYSTRUCTURE {}", "(".repeat(10_000));
+
+        assert_matches!(
+            msg_att_body_structure(input.as_bytes()),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
+        );
+    }
+
+    #[test]
+    fn test_body_structure_deeply_nested_message() {
+        let message_str = r#"("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 1 (NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL) "#;
+        let input = format!("BODYSTRUCTURE {}", message_str.repeat(10_000));
+
+        assert_matches!(
+            msg_att_body_structure(input.as_bytes()),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
         );
     }
 }
