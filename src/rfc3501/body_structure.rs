@@ -3,6 +3,7 @@ use nom::{
     bytes::streaming::{tag, tag_no_case},
     character::streaming::char,
     combinator::{map, opt},
+    error::{make_error, ErrorKind},
     multi::many1,
     sequence::{delimited, preceded},
     IResult, Parser,
@@ -86,7 +87,9 @@ impl<'a> BodyExt1Part<'a> {
             opt_opt(preceded(tag(" "), body_lang)),
             // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
             opt_opt(preceded(tag(" "), nstring_utf8)),
-            opt(preceded(tag(" "), BodyExtension::parse)),
+            opt(preceded(tag(" "), |i| {
+                BodyExtension::parse(i, BodyExtension::MAX_DEPTH)
+            })),
         )
             .parse(i)?;
         Ok((
@@ -134,7 +137,9 @@ impl<'a> BodyExtMPart<'a> {
             opt_opt(preceded(tag(" "), body_lang)),
             // Location appears to reference a URL, which by RFC 1738 (section 2.2) should be ASCII
             opt_opt(preceded(tag(" "), nstring_utf8)),
-            opt(preceded(tag(" "), BodyExtension::parse)),
+            opt(preceded(tag(" "), |i| {
+                BodyExtension::parse(i, BodyExtension::MAX_DEPTH)
+            })),
         )
             .parse(i)?;
         Ok((
@@ -240,14 +245,18 @@ pub enum BodyExtension<'a> {
 }
 
 impl<'a> BodyExtension<'a> {
-    fn parse(i: &'a [u8]) -> IResult<&'a [u8], Self> {
+    fn parse(i: &'a [u8], max_depth: usize) -> IResult<&'a [u8], Self> {
+        let Some(max_depth) = max_depth.checked_sub(1) else {
+            return Err(nom::Err::Failure(make_error(i, ErrorKind::TooLarge)));
+        };
+
         alt((
             map(number, BodyExtension::Num),
             // Cannot find documentation on character encoding for body extension values.
             // So far, assuming UTF-8 seems fine, please report if you run into issues here.
             map(nstring_utf8, BodyExtension::Str),
             map(
-                parenthesized_nonempty_list(BodyExtension::parse),
+                parenthesized_nonempty_list(move |i| BodyExtension::parse(i, max_depth)),
                 BodyExtension::List,
             ),
         ))
@@ -263,6 +272,8 @@ impl<'a> BodyExtension<'a> {
             }
         }
     }
+
+    const MAX_DEPTH: usize = 8;
 }
 
 fn body_disposition(i: &[u8]) -> IResult<&[u8], Option<ContentDisposition<'_>>> {
@@ -673,27 +684,57 @@ mod tests {
     #[test]
     fn test_body_extension_data() {
         assert_matches!(
-            BodyExtension::parse(br#""blah""#),
+            BodyExtension::parse(br#""blah""#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::Str(Some(Cow::Borrowed("blah")))))
         );
 
         assert_matches!(
-            BodyExtension::parse(br#"NIL"#),
+            BodyExtension::parse(br#"NIL"#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::Str(None)))
         );
 
         assert_matches!(
-            BodyExtension::parse(br#"("hello")"#),
+            BodyExtension::parse(br#"("hello")"#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::List(list))) => {
                 assert_eq!(list, vec![BodyExtension::Str(Some(Cow::Borrowed("hello")))]);
             }
         );
 
         assert_matches!(
-            BodyExtension::parse(br#"(1337)"#),
+            BodyExtension::parse(br#"(1337)"#, BodyExtension::MAX_DEPTH),
             Ok((EMPTY, BodyExtension::List(list))) => {
                 assert_eq!(list, vec![BodyExtension::Num(1337)]);
             }
+        );
+    }
+
+    #[test]
+    fn test_body_extension_max_depth() {
+        assert_matches!(BodyExtension::parse(b"((1))", 3), Ok((EMPTY, _)));
+        assert_matches!(
+            BodyExtension::parse(b"((1))", 2),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
+        );
+    }
+
+    #[test]
+    fn test_body_structure_deeply_nested_extension() {
+        let depth = 10_000;
+        let body_str = format!(
+            r#"("TEXT" "PLAIN" {BODY_FIELDS} 42 NIL NIL NIL NIL {}1{})"#,
+            "(".repeat(depth),
+            ")".repeat(depth),
+        );
+
+        assert_matches!(
+            BodyStructure::parse(body_str.as_bytes()),
+            Err(nom::Err::Failure(nom::error::Error {
+                code: ErrorKind::TooLarge,
+                ..
+            }))
         );
     }
 
