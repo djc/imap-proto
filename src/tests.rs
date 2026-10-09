@@ -1040,6 +1040,33 @@ fn test_imap_body_structure() {
 }
 
 #[test]
+fn test_body_struct_parser_part_numbers() {
+    let input = br#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 1 1)(("TEXT" "HTML" NIL NIL NIL "7BIT" 1 1)("IMAGE" "PNG" NIL NIL NIL "BASE64" 1)("IMAGE" "GIF" NIL NIL NIL "BASE64" 1) "RELATED")("APPLICATION" "PDF" NIL NIL NIL "BASE64" 1)("AUDIO" "MPEG" NIL NIL NIL "BASE64" 1) "MIXED")"#;
+    let (_, body) = BodyStructure::parse(input).unwrap();
+    let parser = BodyStructParser::new(&body);
+
+    for (subtype, path) in [
+        ("MIXED", vec![]),
+        ("PLAIN", vec![1]),
+        ("RELATED", vec![2]),
+        ("HTML", vec![2, 1]),
+        ("PNG", vec![2, 2]),
+        ("GIF", vec![2, 3]),
+        ("PDF", vec![3]),
+        ("MPEG", vec![4]),
+    ] {
+        let found = parser.search(|body| {
+            let (BodyStructure::Basic { common, .. }
+            | BodyStructure::Text { common, .. }
+            | BodyStructure::Message { common, .. }
+            | BodyStructure::Multipart { common, .. }) = body;
+            common.ty.subtype == subtype
+        });
+        assert_eq!(found, Some(path), "{subtype}");
+    }
+}
+
+#[test]
 fn test_parsing_of_quota_capability_in_login_response() {
     match Response::parse(b"* OK [CAPABILITY IMAP4rev1 IDLE QUOTA] Logged in\r\n") {
         Ok((

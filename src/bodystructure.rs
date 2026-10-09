@@ -7,7 +7,6 @@ use crate::rfc3501::body_structure::BodyStructure;
 pub struct BodyStructParser<'a> {
     root: &'a BodyStructure<'a>,
     prefix: Vec<u32>,
-    iter: u32,
     map: HashMap<Vec<u32>, &'a BodyStructure<'a>>,
 }
 
@@ -21,7 +20,6 @@ impl<'a> BodyStructParser<'a> {
         let mut parser = BodyStructParser {
             root,
             prefix: vec![],
-            iter: 1,
             map: HashMap::new(),
         };
 
@@ -58,12 +56,10 @@ impl<'a> BodyStructParser<'a> {
                 self.map.insert(vec, node);
 
                 for (i, n) in bodies.iter().enumerate() {
-                    self.iter += i as u32;
-                    self.prefix.push(self.iter);
+                    self.prefix.push(i as u32 + 1);
                     self.parse(n);
                     self.prefix.pop();
                 }
-                self.iter = 1;
             }
             _ => {
                 let vec = self.prefix.clone();
