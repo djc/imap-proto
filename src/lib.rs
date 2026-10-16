@@ -39,6 +39,8 @@ mod tests;
 #[non_exhaustive]
 pub enum Response<'a> {
     Capabilities(Vec<Capability<'a>>),
+    /// Capabilities successfully enabled by an RFC 5161 ENABLE command.
+    Enabled(Vec<Capability<'a>>),
     Continue(Outcome<'a>),
     Done {
         tag: RequestId,
@@ -55,6 +57,9 @@ pub enum Response<'a> {
         uids: Vec<std::ops::RangeInclusive<u32>>,
     },
     Fetch(u32, Vec<AttributeValue<'a>>),
+    /// An RFC 9586 UIDFETCH response. The leading number is always a UID,
+    /// never a mutable message sequence number.
+    UidFetch(u32, Vec<AttributeValue<'a>>),
     MailboxData(MailboxDatum<'a>),
     Quota(Quota<'a>),
     QuotaRoot(QuotaRoot<'a>),
@@ -74,9 +79,29 @@ impl<'a> Response<'a> {
         .parse(msg)
     }
 
+    /// Parse a response while preserving RFC 5161 `ENABLED` responses as a
+    /// distinct [`Response::Enabled`] variant.
+    ///
+    /// [`Response::parse`] retains its historical behavior and represents both
+    /// `CAPABILITY` and `ENABLED` response data as [`Response::Capabilities`].
+    pub fn parse_with_enabled(msg: &'a [u8]) -> ParseResult<'a> {
+        alt((
+            rfc3501::continue_req,
+            rfc3501::response_data_with_enabled,
+            rfc3501::response_tagged,
+        ))
+        .parse(msg)
+    }
+
     pub fn into_owned(self) -> Response<'static> {
         match self {
             Response::Capabilities(capabilities) => Response::Capabilities(
+                capabilities
+                    .into_iter()
+                    .map(Capability::into_owned)
+                    .collect(),
+            ),
+            Response::Enabled(capabilities) => Response::Enabled(
                 capabilities
                     .into_iter()
                     .map(Capability::into_owned)
@@ -100,6 +125,10 @@ impl<'a> Response<'a> {
             Response::Vanished { earlier, uids } => Response::Vanished { earlier, uids },
             Response::Fetch(seq, attrs) => Response::Fetch(
                 seq,
+                attrs.into_iter().map(AttributeValue::into_owned).collect(),
+            ),
+            Response::UidFetch(uid, attrs) => Response::UidFetch(
+                uid,
                 attrs.into_iter().map(AttributeValue::into_owned).collect(),
             ),
             Response::MailboxData(datum) => Response::MailboxData(datum.into_owned()),
