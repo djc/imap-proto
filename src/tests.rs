@@ -1263,3 +1263,94 @@ fn test_fetch_unknown_savedate_fallback() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 }
+
+// ── RFC 8970 PREVIEW — Dovecot 2.4 ───────────────────────────────────────────
+
+#[test]
+fn test_fetch_rfc8970_preview() {
+    match Response::parse(
+        b"* 1 FETCH (UID 1 FLAGS () PREVIEW \"Hello Bob, the meeting moved to Thursday.\" RFC822.SIZE 162)\r\n",
+    ) {
+        Ok((_, Response::Fetch(1, attrs))) => {
+            assert_eq!(attrs.len(), 4);
+            match &attrs[2] {
+                AttributeValue::Preview(Some(preview)) => {
+                    assert_eq!(preview.as_ref(), "Hello Bob, the meeting moved to Thursday.");
+                }
+                other => panic!("expected Preview(Some), got {other:?}"),
+            }
+            assert!(matches!(attrs[3], AttributeValue::Rfc822Size(162)));
+        }
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_fetch_rfc8970_preview_quoted_specials() {
+    // The preview is message text, so it can hold quotes, backslashes and
+    // parentheses that must not end the attribute list.
+    match Response::parse(
+        b"* 2 FETCH (UID 2 PREVIEW \"She said \\\"ship it\\\" (today) and left C:\\\\temp alone.\")\r\n",
+    ) {
+        Ok((_, Response::Fetch(2, attrs))) => {
+            assert_eq!(attrs.len(), 2);
+            match &attrs[1] {
+                AttributeValue::Preview(Some(preview)) => assert_eq!(
+                    preview.as_ref(),
+                    "She said \"ship it\" (today) and left C:\\temp alone."
+                ),
+                other => panic!("expected Preview(Some), got {other:?}"),
+            }
+        }
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_fetch_rfc8970_preview_literal() {
+    // Dovecot sends a preview holding non-ASCII text as a literal.
+    match Response::parse(
+        "* 3 FETCH (UID 3 PREVIEW {45}\r\nCafé déjà vu — 日本語のテキスト.)\r\n".as_bytes(),
+    ) {
+        Ok((_, Response::Fetch(3, attrs))) => {
+            assert_eq!(attrs.len(), 2);
+            match &attrs[1] {
+                AttributeValue::Preview(Some(preview)) => {
+                    assert_eq!(preview.as_ref(), "Café déjà vu — 日本語のテキスト.");
+                }
+                other => panic!("expected Preview(Some), got {other:?}"),
+            }
+        }
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_fetch_rfc8970_preview_empty() {
+    // RFC 8970 §3.2: a message with no previewable text has a zero-length
+    // preview, which is distinct from NIL.
+    match Response::parse(b"* 7 FETCH (UID 7 PREVIEW \"\")\r\n") {
+        Ok((_, Response::Fetch(7, attrs))) => {
+            assert_eq!(attrs.len(), 2);
+            match &attrs[1] {
+                AttributeValue::Preview(Some(preview)) => assert_eq!(preview.as_ref(), ""),
+                other => panic!("expected Preview(Some), got {other:?}"),
+            }
+        }
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
+
+#[test]
+fn test_fetch_rfc8970_preview_lazy_nil() {
+    // RFC 8970 §4.1: with the LAZY modifier, a preview the server has not
+    // generated yet is returned as NIL.
+    match Response::parse(b"* 1 FETCH (UID 1 PREVIEW NIL)\r\n") {
+        Ok((_, Response::Fetch(1, attrs))) => {
+            assert_eq!(attrs.len(), 2);
+            assert!(matches!(attrs[0], AttributeValue::Uid(1)));
+            assert!(matches!(attrs[1], AttributeValue::Preview(None)));
+        }
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
+}
