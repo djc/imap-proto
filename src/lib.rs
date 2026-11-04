@@ -61,6 +61,9 @@ pub enum Response<'a> {
         uids: Vec<std::ops::RangeInclusive<u32>>,
     },
     Fetch(u32, Vec<AttributeValue<'a>>),
+    /// An RFC 9586 UIDFETCH response. The leading number is always a UID,
+    /// never a mutable message sequence number.
+    UidFetch(u32, Vec<AttributeValue<'a>>),
     MailboxData(MailboxDatum<'a>),
     Quota(Quota<'a>),
     QuotaRoot(QuotaRoot<'a>),
@@ -116,6 +119,10 @@ impl<'a> Response<'a> {
             Response::Vanished { earlier, uids } => Response::Vanished { earlier, uids },
             Response::Fetch(seq, attrs) => Response::Fetch(
                 seq,
+                attrs.into_iter().map(AttributeValue::into_owned).collect(),
+            ),
+            Response::UidFetch(uid, attrs) => Response::UidFetch(
+                uid,
                 attrs.into_iter().map(AttributeValue::into_owned).collect(),
             ),
             Response::MailboxData(datum) => Response::MailboxData(datum.into_owned()),
