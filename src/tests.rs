@@ -876,16 +876,26 @@ fn test_continuation() {
 
 #[test]
 fn test_enabled() {
-    match Response::parse(b"* ENABLED QRESYNC X-GOOD-IDEA\r\n") {
-        Ok((_, capabilities)) => assert_eq!(
-            capabilities,
-            Response::Capabilities(vec![
-                Capability::Atom(Cow::Borrowed("QRESYNC")),
-                Capability::Atom(Cow::Borrowed("X-GOOD-IDEA")),
-            ])
-        ),
-        rsp => panic!("Unexpected response: {rsp:?}"),
-    }
+    let expected = Response::Enabled(vec![
+        Capability::Atom(Cow::Borrowed("QRESYNC")),
+        Capability::Atom(Cow::Borrowed("X-GOOD-IDEA")),
+    ]);
+    let owned = {
+        let input = b"* ENABLED QRESYNC X-GOOD-IDEA\r\n".to_vec();
+        let (remaining, response) = Response::parse(&input).unwrap();
+        assert!(remaining.is_empty());
+        assert_eq!(response, expected);
+        response.into_owned()
+    };
+    assert_eq!(owned, expected);
+}
+
+#[test]
+fn test_enabled_empty() {
+    assert_eq!(
+        Response::parse(b"* ENABLED\r\n"),
+        Ok((&b""[..], Response::Enabled(vec![])))
+    );
 }
 
 #[test]
