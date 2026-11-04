@@ -18,7 +18,7 @@ use crate::Response;
 // to a ENABLE command.
 // [RFC5161 - 3.2 The ENABLED Response](https://tools.ietf.org/html/rfc5161#section-3.2)
 pub(crate) fn resp_enabled(i: &[u8]) -> IResult<&[u8], Response<'_>> {
-    map(enabled_data, Response::Capabilities).parse(i)
+    map(enabled_data, Response::Enabled).parse(i)
 }
 
 fn enabled_data(i: &[u8]) -> IResult<&[u8], Vec<Capability<'_>>> {

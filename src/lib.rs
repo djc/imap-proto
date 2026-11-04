@@ -38,7 +38,13 @@ mod tests;
 #[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Response<'a> {
+    /// Capabilities advertised in an untagged `CAPABILITY` response.
     Capabilities(Vec<Capability<'a>>),
+    /// Capabilities reported in an RFC 5161 `ENABLED` response.
+    ///
+    /// Earlier versions returned [`Response::Capabilities`] for `ENABLED`.
+    /// Clients handling the result of `ENABLE` should match this variant instead.
+    Enabled(Vec<Capability<'a>>),
     Continue(Outcome<'a>),
     Done {
         tag: RequestId,
@@ -65,6 +71,10 @@ pub enum Response<'a> {
 }
 
 impl<'a> Response<'a> {
+    /// Parses one IMAP response, returning the remaining input and the response.
+    ///
+    /// Untagged `CAPABILITY` responses return [`Response::Capabilities`], while
+    /// `ENABLED` responses return [`Response::Enabled`].
     pub fn parse(msg: &'a [u8]) -> ParseResult<'a> {
         alt((
             rfc3501::continue_req,
@@ -77,6 +87,12 @@ impl<'a> Response<'a> {
     pub fn into_owned(self) -> Response<'static> {
         match self {
             Response::Capabilities(capabilities) => Response::Capabilities(
+                capabilities
+                    .into_iter()
+                    .map(Capability::into_owned)
+                    .collect(),
+            ),
+            Response::Enabled(capabilities) => Response::Enabled(
                 capabilities
                     .into_iter()
                     .map(Capability::into_owned)
