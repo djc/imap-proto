@@ -1243,8 +1243,11 @@ impl<'a> Outcome<'a> {
                 None
             } else if code.is_some() {
                 Some(match text {
-                    Cow::Borrowed(s) => Cow::Borrowed(&s[1..]),
-                    Cow::Owned(s) => Cow::Owned(s[1..].to_string()),
+                    Cow::Borrowed(s) => Cow::Borrowed(s.strip_prefix(' ').unwrap_or(s)),
+                    Cow::Owned(s) => Cow::Owned(match s.strip_prefix(' ') {
+                        Some(s) => s.to_string(),
+                        None => s,
+                    }),
                 })
             } else {
                 Some(text)

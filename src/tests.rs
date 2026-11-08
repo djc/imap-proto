@@ -830,6 +830,21 @@ fn test_response_codes() {
         )) => {}
         rsp => panic!("unexpected response {rsp:?}"),
     }
+
+    match Response::parse(b"* OK [ALERT]\xc3\xa9\r\n") {
+        Ok((
+            _,
+            Response::Data {
+                status: Status::Ok,
+                outcome:
+                    Outcome {
+                        code: Some(ResponseCode::Alert),
+                        information: Some(Cow::Borrowed("é")),
+                    },
+            },
+        )) => {}
+        rsp => panic!("unexpected response {rsp:?}"),
+    }
 }
 
 #[test]
