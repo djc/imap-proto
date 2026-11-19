@@ -1744,7 +1744,13 @@ fn test_doubled_permanent_flag_wildcard() {
 
 #[test]
 fn test_tripled_flag_prefix_is_not_normalized_twice() {
-    // Extra slashes in ordinary flag lists are tolerated as extensions.
+    assert!(Response::parse(b"* FLAGS (\\\\\\Seen)\r\n").is_err());
+    match Response::parse(b"* 1 FETCH (FLAGS (\\\\\\Seen))\r\n") {
+        Ok(([], Response::Fetch(1, attributes))) => {
+            assert_eq!(attributes, [AttributeValue::Unknown]);
+        }
+        response => panic!("unexpected response {response:?}"),
+    }
     for input in [
         &b"* OK [PERMANENTFLAGS (\\\\\\Seen)] Flags permitted.\r\n"[..],
         &b"* OK [PERMANENTFLAGS (\\\\\\*)] Flags permitted.\r\n"[..],
