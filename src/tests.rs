@@ -1696,10 +1696,11 @@ fn test_doubled_flag_prefixes() {
                 2,
                 Response::Data {
                     status: Status::Ok,
-                    outcome: Outcome {
-                        code: Some(ResponseCode::PermanentFlags(flags)),
-                        information: Some(Cow::Borrowed("Flags permitted.")),
-                    },
+                    outcome:
+                        Outcome {
+                            code: Some(ResponseCode::PermanentFlags(flags)),
+                            information: Some(Cow::Borrowed("Flags permitted.")),
+                        },
                 },
             ) => flags,
             (_, response) => panic!("unexpected response {response:?}"),
@@ -1729,10 +1730,11 @@ fn test_doubled_permanent_flag_wildcard() {
             [],
             Response::Data {
                 status: Status::Ok,
-                outcome: Outcome {
-                    code: Some(ResponseCode::PermanentFlags(flags)),
-                    information: Some(Cow::Borrowed("Flags permitted.")),
-                },
+                outcome:
+                    Outcome {
+                        code: Some(ResponseCode::PermanentFlags(flags)),
+                        information: Some(Cow::Borrowed("Flags permitted.")),
+                    },
             },
         )) => {
             assert_eq!(flags, vec!["\\Seen", "\\*", "\\*"]);
@@ -1760,10 +1762,11 @@ fn test_tripled_flag_prefix_is_not_normalized_twice() {
                 [],
                 Response::Data {
                     status: Status::Ok,
-                    outcome: Outcome {
-                        code: None,
-                        information: Some(Cow::Borrowed(_)),
-                    },
+                    outcome:
+                        Outcome {
+                            code: None,
+                            information: Some(Cow::Borrowed(_)),
+                        },
                 },
             )) => {}
             response => panic!("unexpected response {response:?}"),
