@@ -1673,3 +1673,94 @@ fn test_fetch_rfc8970_preview_lazy_nil() {
         rsp => panic!("unexpected response {rsp:?}"),
     }
 }
+#[test]
+fn test_doubled_flag_prefixes() {
+    let inputs: &[&[u8]] = &[
+        b"* FLAGS (\\Answered \\Deleted \\Draft \\Flagged \\Seen \\\\Flagged \\\\Seen \\\\Answered)\r\n",
+        b"* 1 FETCH (FLAGS (\\Answered \\Deleted \\Draft \\Flagged \\Seen \\\\Flagged \\\\Seen \\\\Answered))\r\n",
+        b"* OK [PERMANENTFLAGS (\\Answered \\Deleted \\Draft \\Flagged \\Seen \\\\Flagged \\\\Seen \\\\Answered \\*)] Flags permitted.\r\n",
+    ];
+    for (index, input) in inputs.iter().enumerate() {
+        let (remaining, response) = Response::parse(input).unwrap();
+        assert!(remaining.is_empty());
+        let flags = match (index, response) {
+            (0, Response::MailboxData(MailboxDatum::Flags(flags))) => flags,
+            (1, Response::Fetch(1, mut attributes)) => {
+                assert_eq!(attributes.len(), 1);
+                match attributes.remove(0) {
+                    AttributeValue::Flags(flags) => flags,
+                    attribute => panic!("unexpected attribute {attribute:?}"),
+                }
+            }
+            (
+                2,
+                Response::Data {
+                    status: Status::Ok,
+                    outcome: Outcome {
+                        code: Some(ResponseCode::PermanentFlags(flags)),
+                        information: Some(Cow::Borrowed("Flags permitted.")),
+                    },
+                },
+            ) => flags,
+            (_, response) => panic!("unexpected response {response:?}"),
+        };
+        let mut expected = vec![
+            "\\Answered",
+            "\\Deleted",
+            "\\Draft",
+            "\\Flagged",
+            "\\Seen",
+            "\\Flagged",
+            "\\Seen",
+            "\\Answered",
+        ];
+        if index == 2 {
+            expected.push("\\*");
+        }
+        assert_eq!(flags, expected);
+        assert!(flags.iter().all(|flag| matches!(flag, Cow::Borrowed(_))));
+    }
+}
+
+#[test]
+fn test_doubled_permanent_flag_wildcard() {
+    match Response::parse(b"* OK [PERMANENTFLAGS (\\Seen \\* \\\\*)] Flags permitted.\r\n") {
+        Ok((
+            [],
+            Response::Data {
+                status: Status::Ok,
+                outcome: Outcome {
+                    code: Some(ResponseCode::PermanentFlags(flags)),
+                    information: Some(Cow::Borrowed("Flags permitted.")),
+                },
+            },
+        )) => {
+            assert_eq!(flags, vec!["\\Seen", "\\*", "\\*"]);
+            assert!(flags.iter().all(|flag| matches!(flag, Cow::Borrowed(_))));
+        }
+        response => panic!("unexpected response {response:?}"),
+    }
+}
+
+#[test]
+fn test_tripled_flag_prefix_is_not_normalized_twice() {
+    // Extra slashes in ordinary flag lists are tolerated as extensions.
+    for input in [
+        &b"* OK [PERMANENTFLAGS (\\\\\\Seen)] Flags permitted.\r\n"[..],
+        &b"* OK [PERMANENTFLAGS (\\\\\\*)] Flags permitted.\r\n"[..],
+    ] {
+        match Response::parse(input) {
+            Ok((
+                [],
+                Response::Data {
+                    status: Status::Ok,
+                    outcome: Outcome {
+                        code: None,
+                        information: Some(Cow::Borrowed(_)),
+                    },
+                },
+            )) => {}
+            response => panic!("unexpected response {response:?}"),
+        }
+    }
+}
