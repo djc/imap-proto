@@ -118,6 +118,16 @@ fn flag_list(i: &[u8]) -> IResult<&[u8], Vec<Cow<'_, str>>> {
 }
 
 fn flag_perm(i: &[u8]) -> IResult<&[u8], &str> {
+    // Some servers double the leading backslash; drop exactly one only when a valid flag follows.
+    let i = if i.starts_with(b"\\\\") {
+        match i.get(2) {
+            Some(b'*') => &i[1..],
+            Some(&c) if is_atom_char(c) => &i[1..],
+            _ => i,
+        }
+    } else {
+        i
+    };
     alt((map_res(tag("\\*"), from_utf8), flag)).parse(i)
 }
 
