@@ -18,8 +18,8 @@ use nom::{
 };
 
 use crate::{
-    core::*, rfc2087, rfc2971, rfc3501::body::*, rfc3501::body_structure::*, rfc4314, rfc4315,
-    rfc4315::UidSetMember, rfc4551, rfc5161, rfc5256, rfc5464, rfc5464::Metadata, rfc7162,
+    core::*, rfc2087, rfc2342, rfc2971, rfc3501::body::*, rfc3501::body_structure::*, rfc4314,
+    rfc4315, rfc4315::UidSetMember, rfc4551, rfc5161, rfc5256, rfc5464, rfc5464::Metadata, rfc7162,
     Response,
 };
 
@@ -1343,6 +1343,7 @@ pub(crate) fn response_data(i: &[u8]) -> IResult<&[u8], Response<'_>> {
             rfc4314::acl,
             rfc4314::list_rights,
             rfc4314::my_rights,
+            rfc2342::namespace_response,
         )),
         preceded(
             many0(tag(" ")), // Outlook server sometimes sends whitespace at the end of STATUS response.
