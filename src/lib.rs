@@ -22,6 +22,8 @@ pub mod builders;
 pub mod gmail;
 pub mod rfc2087;
 use rfc2087::{Quota, QuotaRoot};
+pub mod rfc2342;
+use rfc2342::Namespace;
 pub mod rfc2971;
 pub mod rfc4314;
 use rfc4314::{Acl, ListRights, MyRights};
@@ -71,6 +73,12 @@ pub enum Response<'a> {
     Acl(Acl<'a>),
     ListRights(ListRights<'a>),
     MyRights(MyRights<'a>),
+    /// An RFC 2342 `NAMESPACE` response. `NIL` groups are `None`.
+    Namespace {
+        personal: Option<Vec<Namespace<'a>>>,
+        other_users: Option<Vec<Namespace<'a>>>,
+        shared: Option<Vec<Namespace<'a>>>,
+    },
 }
 
 impl<'a> Response<'a> {
@@ -136,6 +144,20 @@ impl<'a> Response<'a> {
             Response::Acl(acl_list) => Response::Acl(acl_list.into_owned()),
             Response::ListRights(rights) => Response::ListRights(rights.into_owned()),
             Response::MyRights(rights) => Response::MyRights(rights.into_owned()),
+            Response::Namespace {
+                personal,
+                other_users,
+                shared,
+            } => {
+                let owned = |group: Option<Vec<Namespace<'_>>>| {
+                    group.map(|g| g.into_iter().map(Namespace::into_owned).collect())
+                };
+                Response::Namespace {
+                    personal: owned(personal),
+                    other_users: owned(other_users),
+                    shared: owned(shared),
+                }
+            }
         }
     }
 }
