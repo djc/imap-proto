@@ -5,7 +5,7 @@ use nom::{
     combinator::{map, opt},
     error::{make_error, ErrorKind},
     multi::many1,
-    sequence::{delimited, preceded},
+    sequence::{delimited, preceded, terminated},
     IResult, Parser,
 };
 use std::borrow::Cow;
@@ -402,12 +402,19 @@ fn body_type_message(i: &[u8], max_depth: usize) -> IResult<&[u8], BodyStructure
 fn body_type_multipart(i: &[u8], max_depth: usize) -> IResult<&[u8], BodyStructure<'_>> {
     map(
         (
-            many1(move |i| BodyStructure::parse(i, max_depth)),
-            tag(" "),
+            // RFC 3501 requires at least one part, but Gmail describes a malformed attached
+            // message as a multipart with none, e.g. `("MIXED" ("BOUNDARY" "x") NIL NIL)`.
+            map(
+                opt(terminated(
+                    many1(move |i| BodyStructure::parse(i, max_depth)),
+                    tag(" "),
+                )),
+                Option::unwrap_or_default,
+            ),
             string_utf8,
             BodyExtMPart::parse,
         ),
-        |(bodies, _, subtype, ext)| BodyStructure::Multipart {
+        |(bodies, subtype, ext)| BodyStructure::Multipart {
             common: BodyContentCommon {
                 ty: ContentType {
                     ty: Cow::Borrowed("MULTIPART"),
@@ -773,6 +780,30 @@ mod tests {
     }
 
     // The whole response has to survive it, not just the field.
+    #[test]
+    fn test_body_structure_message_holding_an_empty_multipart() {
+        const BODY: &[u8] = br#"(("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "QUOTED-PRINTABLE" 12 1 NIL NIL NIL)("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 300 ("Mon, 1 Jan 2024 00:00:00 +0000" "Hi" ((NIL NIL "a" "example.com")) ((NIL NIL "a" "example.com")) ((NIL NIL "a" "example.com")) ((NIL NIL "b" "example.com")) NIL NIL NIL "<x@example.com>") ("MIXED" ("BOUNDARY" "abc") NIL NIL) 9 NIL NIL NIL) "MIXED" ("BOUNDARY" "def") NIL NIL)"#;
+
+        assert_matches!(
+            BodyStructure::parse(BODY, BodyStructure::MAX_DEPTH),
+            Ok((EMPTY, BodyStructure::Multipart { bodies, .. })) => {
+                assert_eq!(bodies.len(), 2);
+                assert_matches!(
+                    &bodies[1],
+                    BodyStructure::Message { body, .. } => {
+                        assert_matches!(
+                            body.as_ref(),
+                            BodyStructure::Multipart { bodies, common, .. } => {
+                                assert!(bodies.is_empty());
+                                assert_eq!(common.ty.subtype, "MIXED");
+                            }
+                        );
+                    }
+                );
+            }
+        );
+    }
+
     #[test]
     fn test_body_structure_multipart_with_nil_encoding() {
         const BODY: &[u8] = br#"(("text" "plain" ("CHARSET" "UTF-8") NIL NIL NIL 1694 51 NIL NIL NIL NIL)("text" "html" ("CHARSET" "UTF-8") NIL NIL "quoted-printable" 5750 77 NIL NIL NIL NIL) "alternative" ("BOUNDARY" "94eb2c1235681e93cc0568edba59") NIL NIL NIL)"#;
